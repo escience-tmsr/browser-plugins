@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Default extension</title>
+    <style>
+      body { font-family: sans-serif; margin: 10px; width: 280px; }
+      label { display: block; margin-top: 8px; }
+      input { width: 100%; box-sizing: border-box; }
+      button { margin-top: 10px; width: 100%; }
+      small { color: #555; }
+      .button-row { display: flex; gap: 10px; }
+    </style>
+  </head>
+  <body>
+    <label>
+      DOI:
+      <input type="text" id="doiInput" placeholder="">
+    </label>
+
+    <small>
+      The add-on will retrieve the web page related to the DOI, wait for 
+      it to load, then find the first link or button whose text/label 
+      contains "PDF", and open the page behind that link or button.
+    </small>
+
+    <div class="button-row">
+      <button id="saveLog" style="width:100px">Save Log</button>
+      <button id="startButton">Process DOI</button>
+    </div>
+
+    <p id="status" style="margin-top:10px; font-size: 12px;"></p>
+
+    <script src="src/status.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,40 @@
+{
+  "manifest_version": 2,
+  "name": "Default extension",
+  "version": "2.2",
+  "description": "Open a URL, find a link/button containing a phrase, and open the linked page.",
+  "permissions": [
+    "tabs",
+    "storage",
+    "downloads",
+    "webRequest",
+    "webRequestBlocking",
+    "<all_urls>"
+  ],
+  "browser_action": {
+    "default_title": "Default extension",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "scripts": ["src/status.js",
+                "src/background.functions.js",
+                "background.js"],
+    "persistent": false
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "src/content.functions.js",
+        "content-script.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "applications": {
+    "gecko": {
+      "id": "default-extension@example.com"
+    }
+  },
+  "icons": { "40": "icons/article-48.png" }
+}

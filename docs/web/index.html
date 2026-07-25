@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DOI Downloader — Legal Knowledge Base</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 15px;
+      color: #222;
+      background: #f7f8fa;
+    }
+
+    header {
+      background: #1a3a5c;
+      color: white;
+      padding: 2rem 2rem 1.5rem;
+    }
+    header h1 { font-size: 1.5rem; font-weight: 600; }
+    header p { margin-top: 0.4rem; color: #a8c4df; font-size: 0.9rem; }
+
+    nav {
+      background: #14304f;
+      display: flex;
+      gap: 1.5rem;
+      padding: 0 2rem;
+    }
+    nav a {
+      color: #a8c4df;
+      text-decoration: none;
+      font-size: 0.85rem;
+      padding: 0.6rem 0;
+      border-bottom: 2px solid transparent;
+    }
+    nav a:hover, nav a.active { color: white; border-bottom-color: #4a9edd; }
+
+    main { max-width: 1000px; margin: 2rem auto; padding: 0 1.5rem 4rem; }
+
+    /* Search bar placeholder */
+    .search-bar {
+      background: white;
+      border: 1px solid #dde3ec;
+      border-radius: 8px;
+      padding: 1rem 1.2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    .search-bar input {
+      border: none;
+      outline: none;
+      font-size: 0.95rem;
+      flex: 1;
+      color: #888;
+    }
+    .search-bar .badge {
+      font-size: 0.7rem;
+      background: #eef4fb;
+      color: #4a7fb5;
+      border: 1px solid #c5d9ee;
+      border-radius: 4px;
+      padding: 0.2rem 0.5rem;
+      white-space: nowrap;
+    }
+
+    section { margin-bottom: 2.5rem; }
+    h2 { font-size: 1.05rem; font-weight: 600; color: #1a3a5c; margin-bottom: 1rem; padding-bottom: 0.4rem; border-bottom: 2px solid #dde3ec; }
+    h3 { font-size: 0.9rem; font-weight: 600; color: #333; margin-bottom: 0.6rem; }
+
+    /* Decision tree */
+    .decision-tree {
+      background: white;
+      border: 1px solid #dde3ec;
+      border-radius: 8px;
+      padding: 1.2rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.8rem;
+    }
+    .decision-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+    }
+    .decision-step .q {
+      background: #1a3a5c;
+      color: white;
+      border-radius: 50%;
+      width: 22px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.75rem;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .decision-step .text { font-size: 0.88rem; line-height: 1.5; }
+    .decision-step .text .yes { color: #217a47; font-weight: 600; }
+    .decision-step .text .no  { color: #b94a48; font-weight: 600; }
+
+    /* Tables */
+    .card {
+      background: white;
+      border: 1px solid #dde3ec;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th {
+      background: #f0f4f9;
+      text-align: left;
+      padding: 0.65rem 1rem;
+      font-weight: 600;
+      color: #444;
+      border-bottom: 1px solid #dde3ec;
+    }
+    td {
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid #f0f2f5;
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafbfd; }
+
+    .status {
+      display: inline-block;
+      padding: 0.2rem 0.55rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .status.safe       { background: #d4edda; color: #1a5c30; }
+    .status.caution    { background: #fff3cd; color: #7a5c00; }
+    .status.restricted { background: #f8d7da; color: #7a1a1a; }
+
+    .last-reviewed {
+      font-size: 0.75rem;
+      color: #999;
+      white-space: nowrap;
+    }
+    .stale { color: #b94a48; }
+
+    /* Glossary */
+    .glossary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    .glossary-item {
+      background: white;
+      border: 1px solid #dde3ec;
+      border-radius: 8px;
+      padding: 1rem 1.2rem;
+    }
+    .glossary-item dt { font-weight: 600; font-size: 0.88rem; margin-bottom: 0.3rem; color: #1a3a5c; }
+    .glossary-item dd { font-size: 0.83rem; color: #555; line-height: 1.5; }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      font-size: 0.78rem;
+      color: #aaa;
+      padding: 2rem;
+      border-top: 1px solid #dde3ec;
+      background: white;
+    }
+
+    .data-note {
+      font-size: 0.78rem;
+      color: #888;
+      margin-bottom: 0.6rem;
+    }
+    .data-note span { color: #b94a48; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>DOI Downloader — Legal Knowledge Base</h1>
+  <p>Understand when and how you can use this tool legally and ethically.</p>
+</header>
+
+<nav>
+  <a href="#check" class="active">Quick check</a>
+  <a href="#publishers">Publishers</a>
+  <a href="#jurisdictions">Jurisdictions</a>
+  <a href="#glossary">Glossary</a>
+  <a href="DISCLAIMER.html">Disclaimer</a>
+</nav>
+
+<main>
+
+  <!-- Future LLM search — placeholder -->
+  <div class="search-bar">
+    <svg width="16" height="16" fill="none" stroke="#bbb" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input type="text" placeholder='Ask a question, e.g. "Can I download from Elsevier if I am at a Dutch university?"' disabled />
+    <span class="badge">LLM search — coming soon</span>
+  </div>
+
+  <!-- Decision tree -->
+  <section id="check">
+    <h2>Quick check — can I use this tool?</h2>
+    <div class="decision-tree">
+      <div class="decision-step">
+        <div class="q">1</div>
+        <div class="text">Is the paper <strong>open access</strong>? <span class="yes">Yes →</span> You can use the tool freely.</div>
+      </div>
+      <div class="decision-step">
+        <div class="q">2</div>
+        <div class="text">Are you <strong>logged in via your institution</strong> and the paper is covered by your institutional subscription? <span class="yes">Yes →</span> You likely have access rights. Check your institution's policy on automated tools before proceeding.</div>
+      </div>
+      <div class="decision-step">
+        <div class="q">3</div>
+        <div class="text">Do you have <strong>no access</strong> to the paper? <span class="no">Stop →</span> Do not use this tool. It is not designed to bypass paywalls or access content you are not entitled to.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Publisher table -->
+  <section id="publishers">
+    <h2>Publisher policies</h2>
+    <p class="data-note">Data last reviewed per entry. <span>Red dates</span> indicate entries not reviewed in over 6 months — verify before relying on them.</p>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>Publisher</th>
+            <th>Open access</th>
+            <th>Automated tools</th>
+            <th>Notes</th>
+            <th>Last reviewed</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>JAIR</strong></td>
+            <td><span class="status safe">Fully OA</span></td>
+            <td><span class="status safe">No restriction</span></td>
+            <td>CC-BY. Safe to use freely.</td>
+            <td><span class="last-reviewed">2026-03-23</span></td>
+          </tr>
+          <tr>
+            <td><strong>MDPI</strong></td>
+            <td><span class="status safe">Fully OA</span></td>
+            <td><span class="status safe">No restriction</span></td>
+            <td>CC-BY. Safe to use freely.</td>
+            <td><span class="last-reviewed">2026-03-23</span></td>
+          </tr>
+          <tr>
+            <td><strong>Frontiers</strong></td>
+            <td><span class="status safe">Fully OA</span></td>
+            <td><span class="status safe">No restriction</span></td>
+            <td>CC-BY. Safe to use freely.</td>
+            <td><span class="last-reviewed">2026-03-23</span></td>
+          </tr>
+          <tr>
+            <td><strong>Elsevier / ScienceDirect</strong></td>
+            <td><span class="status caution">Hybrid</span></td>
+            <td><span class="status restricted">Prohibited</span></td>
+            <td>ToS prohibits systematic/automated downloading. Use only for OA papers or with institutional access, one at a time.</td>
+            <td><span class="last-reviewed">2026-03-23</span></td>
+          </tr>
+          <tr>
+            <td><strong>Springer / Nature</strong></td>
+            <td><span class="status caution">Hybrid</span></td>
+            <td><span class="status restricted">Prohibited</span></td>
+            <td>ToS prohibits systematic downloading. Same rules as Elsevier.</td>
+            <td><span class="last-reviewed">2026-03-23</span></td>
+          </tr>
+          <tr>
+            <td><strong>Wiley</strong></td>
+            <td><span class="status caution">Hybrid</span></td>
+            <td><span class="status restricted">Prohibited</span></td>
+            <td>ToS prohibits automated access. Use with caution.</td>
+            <td><span class="last-reviewed">2026-03-23</span></td>
+          </tr>
+          <tr>
+            <td><strong>Sage</strong></td>
+            <td><span class="status caution">Mostly subscription</span></td>
+            <td><span class="status restricted">Prohibited</span></td>
+            <td>ToS prohibits automated access.</td>
+            <td><span class="last-reviewed stale">2025-09-01</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Jurisdiction table -->
+  <section id="jurisdictions">
+    <h2>Legal framework by jurisdiction</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>Jurisdiction</th>
+            <th>Key framework</th>
+            <th>Research exemption</th>
+            <th>Notes</th>
+            <th>Last reviewed</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>European Union</strong></td>
+            <td>EU Copyright Directive 2019/790</td>
+            <td><span class="status safe">Yes (Art. 3)</span></td>
+            <td>Text and data mining allowed for research organisations. Individual downloads follow standard copyright rules.</td>
+            <td><span class="last-reviewed">2026-03-23</span></td>
+          </tr>
+          <tr>
+            <td><strong>Netherlands</strong></td>
+            <td>Auteurswet + EU Directive</td>
+            <td><span class="status safe">Yes</span></td>
+            <td>Research exemption applies. Institutional access governed by SURF/UNL agreements.</td>
+            <td><span class="last-reviewed">2026-03-23</span></td>
+          </tr>
+          <tr>
+            <td><strong>United States</strong></td>
+            <td>US Copyright Act + CFAA</td>
+            <td><span class="status caution">Limited</span></td>
+            <td>Fair use may apply in some cases. ToS violations can be prosecuted under CFAA. Unsettled legal landscape.</td>
+            <td><span class="last-reviewed">2026-03-23</span></td>
+          </tr>
+          <tr>
+            <td><strong>United Kingdom</strong></td>
+            <td>CDPA 1988 + TDM exception</td>
+            <td><span class="status safe">Yes (s.29A)</span></td>
+            <td>TDM exception for non-commercial research. Post-Brexit rules apply independently of EU Directive.</td>
+            <td><span class="last-reviewed stale">2025-08-01</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Glossary -->
+  <section id="glossary">
+    <h2>Glossary</h2>
+    <dl class="glossary-grid">
+      <div class="glossary-item">
+        <dt>DOI</dt>
+        <dd>Digital Object Identifier. A unique persistent identifier for a document (e.g. <code>10.1613/jair.49</code>).</dd>
+      </div>
+      <div class="glossary-item">
+        <dt>Open access</dt>
+        <dd>A paper freely available to anyone online, typically under a Creative Commons license (CC-BY, CC-0).</dd>
+      </div>
+      <div class="glossary-item">
+        <dt>Institutional access</dt>
+        <dd>Access granted through a subscription paid by your university or research institute.</dd>
+      </div>
+      <div class="glossary-item">
+        <dt>Paywall</dt>
+        <dd>A barrier restricting access to content unless payment or authentication is provided.</dd>
+      </div>
+      <div class="glossary-item">
+        <dt>Terms of Service (ToS)</dt>
+        <dd>Contractual rules set by a publisher governing how their platform can be used.</dd>
+      </div>
+      <div class="glossary-item">
+        <dt>TDM</dt>
+        <dd>Text and Data Mining. The automated analysis of large amounts of digital text. Subject to specific legal exemptions in some jurisdictions.</dd>
+      </div>
+    </dl>
+  </section>
+
+</main>
+
+<footer>
+  DOI Downloader — eScience Center &nbsp;|&nbsp; <a href="DISCLAIMER.html">Disclaimer and Terms of Use</a> &nbsp;|&nbsp; Content is maintained manually and may not reflect the latest publisher ToS. Always verify with your institution.
+</footer>
+
+</body>
+</html>

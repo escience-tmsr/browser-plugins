@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it as below.
+title: browser-plugins
+authors:
+  - family-names: Tjong Kim Sang
+    given-names: Erik
+    orcid: https://orcid.org/0000-0002-8431-081X
+    affiliation: Netherlands eScience Center
+    email: e.tjongkimsang@esciencecenter.nl
+repository-code: https://github.com/escience-tmsr/browser-plugins
+license: Apache-2.0

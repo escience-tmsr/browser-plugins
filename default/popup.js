@@ -24,6 +24,12 @@ document.getElementById("startButton").addEventListener("click", () => {
 
 });
 
+document.getElementById("openStatusTable").addEventListener("click", () => {
+  openOrFocusStatusTab().catch(err => {
+    sendStatus("Error opening status table: " + err, isError = true);
+  });
+});
+
 document.getElementById("saveLog").addEventListener("click", () => {
   browser.runtime.sendMessage({
     type: "save-log"

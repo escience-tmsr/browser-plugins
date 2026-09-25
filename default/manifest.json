@@ -17,6 +17,7 @@
   },
   "background": {
     "scripts": ["src/status.js",
+                "src/progress.js",
                 "src/background.functions.js",
                 "background.js"],
     "persistent": false

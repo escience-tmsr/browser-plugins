@@ -44,6 +44,11 @@ browser.runtime.onMessage.addListener((msg, sender) => {
     return;
   }
 
+  if (msg.type === "get-progress") {
+    // sent by the status tab when it opens: do not report
+    return Promise.resolve({ html: self.toHtml() });
+  }
+
   if (msg.type !== "what-is-my-tabid") {
     sendStatus(`received message: ${msg.type}`);
   } else {

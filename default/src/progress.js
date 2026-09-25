@@ -14,10 +14,10 @@ const STATUS_SKIPPED = "SKIPPED";
 
 const COLUMNS = [
   "DOI", "page #",
-  "page status", "page result (URL)",
-  "link status", "link result",
-  "capture status", "capture result (target)",
-  "download status", "download result (file)",
+  "publisher page status", "publisher page result (URL)",
+  "pdf link status", "pdf link result (URL)",
+  "pdf capture status", "pdf capture result (target)",
+  "pdf download status", "pdf download result (file)",
 ];
 
 function escapeHtml(value) {
@@ -78,13 +78,13 @@ class ProgressRecorder {
     row.pageResult = url;
   }
 
-  recordPdfLinkFound(doi, pageCounter, status, result) {
+  recordPdfLinkFound(doi, pageCounter, status, resultUrl) {
     const row = this._row(doi, pageCounter);
     row.linkStatus = status;
-    row.linkResult = result;
+    row.linkResult = resultUrl;
   }
 
-  recordPdfAccess(doi, pageCounter, status, targetUrl) {
+  recordPdfCapture(doi, pageCounter, status, targetUrl) {
     const row = this._row(doi, pageCounter);
     row.captureStatus = status;
     row.captureResult = targetUrl;
@@ -128,12 +128,12 @@ function recordPublisherPageAccess(doi, pageCounter, status, url) {
   getRecorder().recordPublisherPageAccess(doi, pageCounter, status, url);
 }
 
-function recordPdfLinkFound(doi, pageCounter, status, result) {
-  getRecorder().recordPdfLinkFound(doi, pageCounter, status, result);
+function recordPdfLinkFound(doi, pageCounter, status, resultUrl) {
+  getRecorder().recordPdfLinkFound(doi, pageCounter, status, resultUrl);
 }
 
-function recordPdfAccess(doi, pageCounter, status, targetUrl) {
-  getRecorder().recordPdfAccess(doi, pageCounter, status, targetUrl);
+function recordPdfCapture(doi, pageCounter, status, targetUrl) {
+  getRecorder().recordPdfCapture(doi, pageCounter, status, targetUrl);
 }
 
 function recordPdfDownload(doi, pageCounter, status, filename) {
@@ -153,7 +153,7 @@ const exported = {
   getRecorder,
   recordPublisherPageAccess,
   recordPdfLinkFound,
-  recordPdfAccess,
+  recordPdfCapture,
   recordPdfDownload,
   toHtml,
 };

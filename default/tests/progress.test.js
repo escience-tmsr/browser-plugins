@@ -1,4 +1,10 @@
 const DOI = "10.1000/example";
+const PAGE_URL = "http://example.com";
+const PUBLISHER_URL = "http://publisher.example";
+const PDF_URL = "http://example.com/a.pdf";
+const FILENAME = "10.1000_example.pdf";
+const UNSAFE_DOI = "<script>doi</script>";
+const UNSAFE_URL = "http://a?x=1&y=2";
 
 let progress;
 
@@ -26,8 +32,8 @@ describe("getRecorder", () => {
 describe("ProgressRecorder._row", () => {
   test("reuses the row for the same doi and page counter", () => {
     const recorder = new progress.ProgressRecorder();
-    recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, "http://example.com");
-    recorder.recordPdfLinkFound(DOI, 1, SUCCESS, "<a>pdf</a>");
+    recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, PAGE_URL);
+    recorder.recordPdfLinkFound(DOI, 1, SUCCESS, PDF_URL);
     expect(recorder._rows.size).toBe(1);
   });
 
@@ -49,49 +55,49 @@ describe("ProgressRecorder._row", () => {
 describe("record* methods", () => {
   test("recordPublisherPageAccess sets page status and result", () => {
     const recorder = new progress.ProgressRecorder();
-    recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, "http://example.com");
+    recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, PAGE_URL);
     const row = recorder._row(DOI, 1);
     expect(row.pageStatus).toBe(SUCCESS);
-    expect(row.pageResult).toBe("http://example.com");
+    expect(row.pageResult).toBe(PAGE_URL);
   });
 
   test("recordPdfLinkFound sets link status and result", () => {
     const recorder = new progress.ProgressRecorder();
-    recorder.recordPdfLinkFound(DOI, 1, SUCCESS, '<a href="a.pdf">');
+    recorder.recordPdfLinkFound(DOI, 1, SUCCESS, PDF_URL);
     const row = recorder._row(DOI, 1);
     expect(row.linkStatus).toBe(SUCCESS);
-    expect(row.linkResult).toBe('<a href="a.pdf">');
+    expect(row.linkResult).toBe(PDF_URL);
   });
 
-  test("recordPdfAccess sets capture status and result", () => {
+  test("recordPdfCapture sets capture status and result", () => {
     const recorder = new progress.ProgressRecorder();
-    recorder.recordPdfAccess(DOI, 1, `${ACCESS_ERROR}: paywall`, "http://example.com/a.pdf");
+    recorder.recordPdfCapture(DOI, 1, `${ACCESS_ERROR}: paywall`, PDF_URL);
     const row = recorder._row(DOI, 1);
     expect(row.captureStatus).toBe(`${ACCESS_ERROR}: paywall`);
-    expect(row.captureResult).toBe("http://example.com/a.pdf");
+    expect(row.captureResult).toBe(PDF_URL);
   });
 
   test("recordPdfDownload sets download status and result", () => {
     const recorder = new progress.ProgressRecorder();
-    recorder.recordPdfDownload(DOI, 1, SUCCESS, "10.1000_example.pdf");
+    recorder.recordPdfDownload(DOI, 1, SUCCESS, FILENAME);
     const row = recorder._row(DOI, 1);
     expect(row.downloadStatus).toBe(SUCCESS);
-    expect(row.downloadResult).toBe("10.1000_example.pdf");
+    expect(row.downloadResult).toBe(FILENAME);
   });
 
   test("a later call to the same record function overwrites the row's cells", () => {
     const recorder = new progress.ProgressRecorder();
     recorder.recordPublisherPageAccess(DOI, 1, SKIPPED, "http://doi.org/" + DOI);
-    recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, "http://publisher.example");
+    recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, PUBLISHER_URL);
     const row = recorder._row(DOI, 1);
     expect(row.pageStatus).toBe(SUCCESS);
-    expect(row.pageResult).toBe("http://publisher.example");
+    expect(row.pageResult).toBe(PUBLISHER_URL);
   });
 });
 
 describe("module-level record* free functions route to the singleton recorder", () => {
   test("recordPublisherPageAccess", () => {
-    progress.recordPublisherPageAccess(DOI, 1, SUCCESS, "http://example.com");
+    progress.recordPublisherPageAccess(DOI, 1, SUCCESS, PAGE_URL);
     const row = progress.getRecorder()._row(DOI, 1);
     expect(row.pageStatus).toBe(SUCCESS);
   });
@@ -102,8 +108,8 @@ describe("module-level record* free functions route to the singleton recorder", 
     expect(row.linkStatus).toBe(NOT_FOUND);
   });
 
-  test("recordPdfAccess", () => {
-    progress.recordPdfAccess(DOI, 1, SUCCESS, "http://example.com/a.pdf");
+  test("recordPdfCapture", () => {
+    progress.recordPdfCapture(DOI, 1, SUCCESS, PDF_URL);
     const row = progress.getRecorder()._row(DOI, 1);
     expect(row.captureStatus).toBe(SUCCESS);
   });
@@ -115,7 +121,7 @@ describe("module-level record* free functions route to the singleton recorder", 
   });
 
   test("toHtml renders the singleton recorder's table", () => {
-    progress.recordPublisherPageAccess(DOI, 1, SUCCESS, "http://example.com");
+    progress.recordPublisherPageAccess(DOI, 1, SUCCESS, PAGE_URL);
     expect(progress.toHtml()).toBe(progress.getRecorder().toHtml());
   });
 });
@@ -141,25 +147,25 @@ describe("toHtml", () => {
 
   test("includes the recorded doi, page number, and result values", () => {
     const recorder = new progress.ProgressRecorder();
-    recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, "http://example.com");
+    recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, PAGE_URL);
     const html = recorder.toHtml();
     expect(html).toContain(DOI);
     expect(html).toContain(">1<");
-    expect(html).toContain("http://example.com");
+    expect(html).toContain(PAGE_URL);
   });
 
   test("escapes doi, result, and status values", () => {
     const recorder = new progress.ProgressRecorder();
-    recorder.recordPublisherPageAccess("<script>doi</script>", 1, SUCCESS, "http://a?x=1&y=2");
+    recorder.recordPublisherPageAccess(UNSAFE_DOI, 1, SUCCESS, UNSAFE_URL);
     const html = recorder.toHtml();
-    expect(html).not.toContain("<script>doi</script>");
+    expect(html).not.toContain(UNSAFE_DOI);
     expect(html).toContain("&lt;script&gt;doi&lt;/script&gt;");
     expect(html).toContain("http://a?x=1&amp;y=2");
   });
 
   test("leaves unset cells blank and uncolored", () => {
     const recorder = new progress.ProgressRecorder();
-    recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, "http://example.com");
+    recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, PAGE_URL);
     const html = recorder.toHtml();
     // link/capture/download stages were never recorded for this row
     expect(html).not.toContain("status-failed");
@@ -168,7 +174,7 @@ describe("toHtml", () => {
 
   test("colors a SUCCESS status and its result cell status-success", () => {
     const recorder = new progress.ProgressRecorder();
-    recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, "http://example.com");
+    recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, PAGE_URL);
     const html = recorder.toHtml();
     expect(html.match(/class="status-success"/g).length).toBe(2); // status cell + result cell
   });
@@ -176,7 +182,7 @@ describe("toHtml", () => {
   test("colors NOT_FOUND and ACCESS_ERROR (with a reason suffix) as status-failed", () => {
     const recorder = new progress.ProgressRecorder();
     recorder.recordPdfLinkFound(DOI, 1, NOT_FOUND, null);
-    recorder.recordPdfAccess(DOI, 1, `${ACCESS_ERROR}: blocked by robots.txt`, "http://example.com/a.pdf");
+    recorder.recordPdfCapture(DOI, 1, `${ACCESS_ERROR}: blocked by robots.txt`, PDF_URL);
     const html = recorder.toHtml();
     expect(html).toContain(NOT_FOUND);
     expect(html).toContain(`${ACCESS_ERROR}: blocked by robots.txt`);

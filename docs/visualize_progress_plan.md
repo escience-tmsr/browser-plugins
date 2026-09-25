@@ -62,7 +62,7 @@ doi.org→publisher-page navigation, since no capture session exists yet at that
 they collect (`lastMainStatus`/`lastMainContentType`) stays internal plumbing that
 `failCapture`'s existing reasoning already uses to decide *why* a capture failed
 (paywall/401/403/HTML-instead-of-PDF); that reasoning is what feeds the capture stage's
-`recordPdfAccess` call, not a separate page-load recording of its own.
+`recordPdfCapture` call, not a separate page-load recording of its own.
 
 **Registering a page-load failure.** A genuine failure of the very first page — a bad DOI,
 a 404, a network/DNS error — normally shows the browser's own internal error page, where
@@ -75,8 +75,8 @@ pattern). If `maybeRunJob` reports in before the timeout, its message both overw
 row with `recordPublisherPageAccess(doi, 1, STATUS_SUCCESS, actualLandedUrl)` and cancels the timeout. If
 it never reports in, the timeout fires and overwrites the row with
 `recordPublisherPageAccess(doi, 1, STATUS_ACCESS_ERROR: "page did not load", doiUrl)` instead — an explicit,
-visible failure rather than a missing row. Either way, both the **page status** cell (the
-colored status word) and the **page result** cell (the URL) always show, in their own
+visible failure rather than a missing row. Either way, both the **publisher page status** cell (the
+colored status word) and the **publisher page result** cell (the URL) always show, in their own
 adjacent columns, exactly as laid out in the mockup below.
 
 The status vocabulary from the Python version will be reused verbatim from `progress.py` 
@@ -91,12 +91,17 @@ recent job's rows accumulating over a session, the same way the Python table gro
 across a batch of `download()` calls:
 
 ```
-| DOI            | page # | page status | page result (URL)         | link status | link result       | capture status | capture result (target)  | download status | download result (file) |
-|----------------|--------|-------------|---------------------------|-------------|--------------------|-----------------|---------------------------|------------------|--------------------------|
-| 10.1613/jair.49| 1      | SUCCESS     | https://doi.org/... →jair | SUCCESS     | <a href="...pdf">  | SUCCESS         | https://jair.org/....pdf | SUCCESS          | 10.1613_jair.49.pdf      |
-| 10.3390/...    | 1      | SUCCESS     | https://mdpi.com/...      | NOT_FOUND   |                    |                 |                           |                  |                          |
-| 10.1177/...    | 1      | SUCCESS     | https://sagepub.com/...   | SUCCESS     | <button "Download">| ACCESS_ERROR: paywall/login | https://sagepub.com/...pdf |     |                          |
+| DOI            | page # | publisher page status | publisher page result (URL) | pdf link status | pdf link result (URL)    | pdf capture status          | pdf capture result (target) | pdf download status | pdf download result (file) |
+|----------------|--------|-----------------------|-----------------------------|-----------------|--------------------------|-----------------------------|-----------------------------|---------------------|----------------------------|
+| 10.1613/jair.49| 1      | SUCCESS               | https://doi.org/... →jair   | SUCCESS         | https://jair.org/....pdf | SUCCESS                     | https://jair.org/....pdf    | SUCCESS             | 10.1613_jair.49.pdf        |
+| 10.3390/...    | 1      | SUCCESS               | https://mdpi.com/...        | NOT_FOUND       |                          |                             |                             |                     |                            |
+| 10.1177/...    | 1      | SUCCESS               | https://sagepub.com/...     | SUCCESS         |                          | ACCESS_ERROR: paywall/login | https://sagepub.com/...pdf  |                     |                            |
 ```
+
+The pdf link result is the URL the found element points to: the `href` of an `<a>` link.
+A `<button>` carries no URL of its own — `performAction` just clicks it and the page's
+script or form decides where that leads — so for a button (third row above) the pdf link
+result stays blank and the URL only becomes known in the pdf capture result.
 
 Below the table, the status tab also carries the running narration log described in
 section 2 — the same one-line messages the popup shows today, just no longer lost when
@@ -110,7 +115,7 @@ the popup closes.
   listed in the stage table above, push an updated render to the status tab after each
   event, open/focus the status tab on `startJob`.
 - `default/src/background.functions.js` — add recording calls to `armCaptureBase` and
-  `failCapture` (capture stage, `recordPdfAccess`/`recordPdfDownload`), and to `startJob`:
+  `failCapture` (capture stage, `recordPdfCapture`/`recordPdfDownload`), and to `startJob`:
   seed a placeholder page-load row and a timeout that marks it a failure if `maybeRunJob`
   never confirms (see section 3).
 - `default/src/content.functions.js` — add recording calls to `maybeRunJob` (page-load
@@ -158,8 +163,8 @@ const STATUS_SKIPPED = "SKIPPED";
 //   downloadStatus, downloadResult }
 
 function recordPublisherPageAccess(doi, pageCounter, status, url) {}
-function recordPdfLinkFound(doi, pageCounter, status, result) {}
-function recordPdfAccess(doi, pageCounter, status, targetUrl) {}
+function recordPdfLinkFound(doi, pageCounter, status, resultUrl) {}
+function recordPdfCapture(doi, pageCounter, status, targetUrl) {}
 function recordPdfDownload(doi, pageCounter, status, filename) {}
 function toHtml() {}          // renders the colored table, same styling as progress.py
 function getRecorder() {}     // module-level singleton, lives in background.js's context
@@ -223,5 +228,5 @@ event handlers.
   `maybeRunJob`'s confirming one use that same value. Still open: who increments
   `job.pageCounter` for page 2 onward (reached by following a link), and how does
   `armCaptureBase` — which runs in `background.js`, not the content script — pick up that
-  same number so `recordPdfAccess`/`recordPdfDownload` land on the matching row rather than a
+  same number so `recordPdfCapture`/`recordPdfDownload` land on the matching row rather than a
   separately-numbered one?

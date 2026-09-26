@@ -1,6 +1,7 @@
 let captureSession = null;
 let downloadLog = "";
 let jobPageCounter = 0;
+let pageLoadTimeoutId = null;
 
 browser.webRequest.onHeadersReceived.addListener(
   (details) => {
@@ -50,6 +51,12 @@ browser.runtime.onMessage.addListener((msg, sender) => {
   if (msg.type === "get-progress") {
     // sent by the status tab when it opens: do not report
     return Promise.resolve({ html: self.toHtml() });
+  }
+
+  if (msg.type === "record-progress") {
+    // sent by the content script for the progress table: do not report
+    self.recordContentProgress(msg);
+    return Promise.resolve();
   }
 
   if (msg.type !== "what-is-my-tabid") {

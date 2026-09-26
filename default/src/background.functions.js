@@ -1,4 +1,5 @@
 const CAPTURE_TIMEOUT_MS = 15000;
+const PAGE_LOAD_TIMEOUT_MS = 30000;
 const phrase = ["PDF", "download"]
 const IGNORE_WEBREQUEST_ERRORS = new Set([
   "NS_BINDING_ABORTED",
@@ -152,6 +153,7 @@ function startJob(doi) {
   const url = "https://doi.org/" + normalizedDoi;
 
   jobPageCounter = 0;
+  self.seedPageLoadRow(normalizedDoi, url);
   return browser.tabs.create({ url }).then(tab => {
     const job = {
       url,
@@ -198,6 +200,39 @@ function recordCaptureFailure(status, reason, targetUrl) {
   self.failCapture(reason);
 }
 
+// A first page that fails to load (bad DOI, 404, network error) shows a browser error
+// page where no content script runs, so its failure would never be reported. Show a
+// placeholder row right away, and mark it failed unless the content script confirms
+// the page in time (see recordContentProgress).
+function seedPageLoadRow(doi, doiUrl) {
+  clearTimeout(pageLoadTimeoutId);
+  self.recordPublisherPageAccess(doi, 1, self.STATUS_SKIPPED, doiUrl);
+  self.sendProgressUpdate();
+  pageLoadTimeoutId = setTimeout(() => {
+    pageLoadTimeoutId = null;
+    self.recordPublisherPageAccess(doi, 1, `${self.STATUS_ACCESS_ERROR}: page did not load`, doiUrl);
+    self.sendProgressUpdate();
+    self.sendStatus(`❌ DOI page did not load: ${doiUrl}`, isError = true);
+  }, PAGE_LOAD_TIMEOUT_MS);
+}
+
+// Record a page load or link search reported by the content script. It belongs to the
+// page after the ones already captured (see armCaptureBase).
+function recordContentProgress(msg) {
+  const pageCounter = jobPageCounter + 1;
+  if (msg.stage === "page") {
+    clearTimeout(pageLoadTimeoutId);
+    pageLoadTimeoutId = null;
+    self.recordPublisherPageAccess(msg.doi, pageCounter, self.STATUS_SUCCESS, msg.url);
+  } else if (msg.stage === "link") {
+    const status = msg.found ? self.STATUS_SUCCESS : self.STATUS_NOT_FOUND;
+    self.recordPdfLinkFound(msg.doi, pageCounter, status, msg.url);
+  } else {
+    return;
+  }
+  self.sendProgressUpdate();
+}
+
 function saveLog(downloadLogCsv) {
   const blob = new Blob([downloadLogCsv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
@@ -210,10 +245,11 @@ function saveLog(downloadLogCsv) {
   self.sendStatus("Saved logfile to Downloads directory");
 }
 
-module.exports = { CAPTURE_TIMEOUT_MS, armCaptureAndNavigate, armCaptureBase, armCaptureOnly, failCapture, inRetrievePdfSession,
-                   looksPaywalledUrl, processIncomingPdfData, recordCapture, recordCaptureFailure, recordDownload,
-                   removeSlashes, retrievingAttachment, retrievingPdfFile, sanitizeDOI, saveLog,
-                   sendProgressUpdate, startJob, storeDetailsInSessionData };
+module.exports = { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, armCaptureAndNavigate, armCaptureBase, armCaptureOnly,
+                   failCapture, inRetrievePdfSession, looksPaywalledUrl, processIncomingPdfData, recordCapture,
+                   recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment,
+                   retrievingPdfFile, sanitizeDOI, saveLog, seedPageLoadRow, sendProgressUpdate, startJob,
+                   storeDetailsInSessionData };
 if (typeof self !== "undefined") {
   self.armCaptureAndNavigate = armCaptureAndNavigate;
   self.armCaptureBase = armCaptureBase;
@@ -224,12 +260,14 @@ if (typeof self !== "undefined") {
   self.processIncomingPdfData = processIncomingPdfData;
   self.recordCapture = recordCapture;
   self.recordCaptureFailure = recordCaptureFailure;
+  self.recordContentProgress = recordContentProgress;
   self.recordDownload = recordDownload;
   self.removeSlashes = removeSlashes;
   self.retrievingAttachment = retrievingAttachment;
   self.retrievingPdfFile = retrievingPdfFile;
   self.sanitizeDOI = sanitizeDOI;
   self.saveLog = saveLog;
+  self.seedPageLoadRow = seedPageLoadRow;
   self.sendProgressUpdate = sendProgressUpdate;
   self.startJob = startJob;
   self.storeDetailsInSessionData = storeDetailsInSessionData;

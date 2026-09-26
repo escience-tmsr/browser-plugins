@@ -4,7 +4,7 @@ const STATUS_CONSTANTS = { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR
 
 // The file name processIncomingPdfData saves a DOI's PDF under.
 function pdfFilename(doi) {
-  return `${doi.replace(/\//g, "_")}.pdf`;
+  return `${removeSlashes(doi)}.pdf`;
 }
 
 describe("sanitizeDOI", () => {

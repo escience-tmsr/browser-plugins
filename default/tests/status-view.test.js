@@ -1,11 +1,12 @@
 const { STATUS_SUCCESS, STATUS_NOT_FOUND } = require("../src/progress");
-const { PROGRESS_ELEMENT_ID, LOG_ELEMENT_ID } = require("../src/status-view");
+const { STATUS_VIEW_PAGE, PROGRESS_ELEMENT_ID, LOG_ELEMENT_ID } = require("../src/status-view");
 
 const DOI = "10.1000/example";
-const PAGE_URL = "moz-extension://extension-id/status-view.html";
+const EXTENSION_BASE_URL = "moz-extension://extension-id/";
+const GET_URL_STATUS_VIEW_PAGE = EXTENSION_BASE_URL + STATUS_VIEW_PAGE;
 const OTHER_URL = "http://example.com";
 const OTHER_TAB = { id: 7, windowId: 3, url: OTHER_URL };
-const STATUS_TAB = { id: 2, windowId: 4, url: PAGE_URL };
+const STATUS_TAB = { id: 2, windowId: 4, url: GET_URL_STATUS_VIEW_PAGE };
 const SUCCESS_CLASS = "status-success";
 const TABLE_HTML = `<table><tbody><tr><td class="${SUCCESS_CLASS}">${STATUS_SUCCESS}</td></tr></tbody></table>`;
 const NEW_TABLE_HTML = `<table><tbody><tr><td>${STATUS_NOT_FOUND}</td></tr></tbody></table>`;
@@ -17,6 +18,10 @@ let statusView;
 
 function setUpStatusPage() {
   document.body.innerHTML = `<div id="${PROGRESS_ELEMENT_ID}"></div><div id="${LOG_ELEMENT_ID}"></div>`;
+}
+
+function firstCell(html) {
+  return new DOMParser().parseFromString(html, "text/html").querySelector("td");
 }
 
 function progressElement() {
@@ -32,7 +37,7 @@ beforeEach(() => {
   document.body.innerHTML = "";
   global.browser = {
     runtime: {
-      getURL: jest.fn().mockReturnValue(PAGE_URL),
+      getURL: jest.fn((path) => EXTENSION_BASE_URL + path),
       onMessage: { addListener: jest.fn() },
       sendMessage: jest.fn().mockResolvedValue({ html: TABLE_HTML }),
     },
@@ -50,8 +55,8 @@ describe("openOrFocusStatusTab", () => {
   test("creates the status tab when none is open", async () => {
     browser.tabs.query.mockResolvedValue([OTHER_TAB]);
     await statusView.openOrFocusStatusTab();
-    expect(browser.runtime.getURL).toHaveBeenCalledWith(statusView.STATUS_VIEW_PAGE);
-    expect(browser.tabs.create).toHaveBeenCalledWith({ url: PAGE_URL });
+    expect(browser.runtime.getURL).toHaveBeenCalledWith(STATUS_VIEW_PAGE);
+    expect(browser.tabs.create).toHaveBeenCalledWith({ url: GET_URL_STATUS_VIEW_PAGE });
     expect(browser.tabs.update).not.toHaveBeenCalled();
   });
 
@@ -71,12 +76,12 @@ describe("handleStatusViewMessage", () => {
     statusView.handleStatusViewMessage({ type: "progress-update", html: TABLE_HTML });
     statusView.handleStatusViewMessage({ type: "progress-update", html: NEW_TABLE_HTML });
     expect(progressElement().querySelectorAll("table").length).toBe(1);
-    expect(progressElement().querySelector("td").textContent).toBe(STATUS_NOT_FOUND);
+    expect(progressElement().querySelector("td").textContent).toBe(firstCell(NEW_TABLE_HTML).textContent);
   });
 
   test("progress-update keeps the status classes of the rendered table", () => {
     statusView.handleStatusViewMessage({ type: "progress-update", html: TABLE_HTML });
-    expect(progressElement().querySelector("td").className).toBe(SUCCESS_CLASS);
+    expect(progressElement().querySelector("td").className).toBe(firstCell(TABLE_HTML).className);
   });
 
   test("status appends a line to the log panel", () => {
@@ -123,7 +128,7 @@ describe("initStatusView", () => {
     await statusView.initStatusView();
     expect(browser.runtime.onMessage.addListener).toHaveBeenCalledWith(statusView.handleStatusViewMessage);
     expect(browser.runtime.sendMessage).toHaveBeenCalledWith({ type: "get-progress" });
-    expect(progressElement().querySelector("td").textContent).toBe(STATUS_SUCCESS);
+    expect(progressElement().querySelector("td").textContent).toBe(firstCell(TABLE_HTML).textContent);
   });
 
   test("runs automatically when the script loads on the status page", () => {

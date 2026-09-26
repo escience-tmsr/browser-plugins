@@ -2,6 +2,11 @@ const { CAPTURE_TIMEOUT_MS, armCaptureBase, failCapture, inRetrievePdfSession, l
 const { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED } = require("../src/progress");
 const STATUS_CONSTANTS = { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED };
 
+// The file name processIncomingPdfData saves a DOI's PDF under.
+function pdfFilename(doi) {
+  return `${doi.replace(/\//g, "_")}.pdf`;
+}
+
 describe("sanitizeDOI", () => {
   test("removes non-essential characters from DOI", () => {
     expect(sanitizeDOI("doi: https://doi.org/10.1613/jair.1.20161"))
@@ -184,15 +189,16 @@ describe("processIncomingPdfData", () => {
   });
 
   test("a failed save is recorded in the download stage of the capture's row", async () => {
-    const session = { doi: "10.1234/doi", pageCounter: 2, expectBrowserDownload: false };
-    global.captureSession = session;
+    const SAVE_SESSION = { doi: "10.1234/doi", pageCounter: 2, expectBrowserDownload: false };
+    const SAVE_ERROR = "disk full";
+    global.captureSession = SAVE_SESSION;
     global.URL = { createObjectURL: jest.fn(), revokeObjectURL: jest.fn() };
-    global.browser.downloads.download = jest.fn().mockRejectedValue(new Error("disk full"));
+    global.browser.downloads.download = jest.fn().mockRejectedValue(new Error(SAVE_ERROR));
     processIncomingPdfData({ requestId: "req-5" });
     global.captureSession = null;  // a later event may already have ended the session
     await fakeFilter.onstop();
     expect(self.recordDownload).toHaveBeenCalledWith(
-      `${STATUS_ACCESS_ERROR}: Saving PDF failed: disk full`, "10.1234_doi.pdf", session);
+      `${STATUS_ACCESS_ERROR}: Saving PDF failed: ${SAVE_ERROR}`, pdfFilename(SAVE_SESSION.doi), SAVE_SESSION);
   });
 });
 
@@ -390,20 +396,19 @@ describe("armCaptureBase", () => {
   });
 
   test("captures after the first one have an unknown target type", () => {
-    armCaptureBase(doi, tabId, expectedUrl);
+    expect(armCaptureBase(doi, tabId, expectedUrl)).toBe("HTML");
     expect(armCaptureBase(doi, tabId, expectedUrl)).toBe("unknown");
   });
 
   test("a new capture records the previous page's capture as skipped", () => {
+    const LANDING_URL = "https://domain/landing";
     armCaptureBase(doi, tabId, expectedUrl);
     const previousSession = global.captureSession;
-    previousSession.lastMainUrl = "https://domain/landing";
-    self.recordCapture.mockImplementation((status, url) => {
-      expect(global.captureSession).toBe(previousSession);  // recorded on the previous page's row
-    });
+    previousSession.lastMainUrl = LANDING_URL;
     armCaptureBase(doi, tabId, expectedUrl);
     expect(self.recordCapture).toHaveBeenCalledWith(
-      `${STATUS_SKIPPED}: HTML page, searched as page 2`, previousSession.lastMainUrl);
+      `${STATUS_SKIPPED}: HTML page, searched as page ${previousSession.pageCounter + 1}`,
+      LANDING_URL, previousSession);
   });
 
   test("a new capture does not overwrite a previous capture that saw a PDF", () => {
@@ -431,6 +436,8 @@ describe("recording functions", () => {
   const session = { doi: "10.1234/doi", pageCounter: 2 };
   const otherSession = { doi: "10.1234/other", pageCounter: 3 };
   const html = "<table></table>";
+  const PDF_URL = "https://domain/a.pdf";
+  const REASON = "paywall";
 
   beforeEach(() => {
     global.self = {
@@ -456,35 +463,35 @@ describe("recording functions", () => {
   });
 
   test("recordCapture records in the current session's row and pushes the table", () => {
-    recordCapture(STATUS_SUCCESS, "https://domain/a.pdf");
+    recordCapture(STATUS_SUCCESS, PDF_URL);
     expect(self.recordPdfCapture).toHaveBeenCalledWith(
-      session.doi, session.pageCounter, STATUS_SUCCESS, "https://domain/a.pdf");
+      session.doi, session.pageCounter, STATUS_SUCCESS, PDF_URL);
     expect(self.sendProgressUpdate).toHaveBeenCalledTimes(1);
   });
 
   test("recordCapture can record in another session's row", () => {
-    recordCapture(STATUS_SUCCESS, "https://domain/a.pdf", otherSession);
+    recordCapture(STATUS_SUCCESS, PDF_URL, otherSession);
     expect(self.recordPdfCapture).toHaveBeenCalledWith(
-      otherSession.doi, otherSession.pageCounter, STATUS_SUCCESS, "https://domain/a.pdf");
+      otherSession.doi, otherSession.pageCounter, STATUS_SUCCESS, PDF_URL);
   });
 
   test("recordDownload records in the current session's row and pushes the table", () => {
-    recordDownload(STATUS_SUCCESS, "10.1234_doi.pdf");
+    recordDownload(STATUS_SUCCESS, pdfFilename(session.doi));
     expect(self.recordPdfDownload).toHaveBeenCalledWith(
-      session.doi, session.pageCounter, STATUS_SUCCESS, "10.1234_doi.pdf");
+      session.doi, session.pageCounter, STATUS_SUCCESS, pdfFilename(session.doi));
     expect(self.sendProgressUpdate).toHaveBeenCalledTimes(1);
   });
 
   test("recordDownload can record in another session's row", () => {
-    recordDownload(STATUS_SUCCESS, "10.1234_other.pdf", otherSession);
+    recordDownload(STATUS_SUCCESS, pdfFilename(otherSession.doi), otherSession);
     expect(self.recordPdfDownload).toHaveBeenCalledWith(
-      otherSession.doi, otherSession.pageCounter, STATUS_SUCCESS, "10.1234_other.pdf");
+      otherSession.doi, otherSession.pageCounter, STATUS_SUCCESS, pdfFilename(otherSession.doi));
   });
 
   test("recordCaptureFailure records the status with its reason and reports the failure", () => {
-    recordCaptureFailure(STATUS_ACCESS_ERROR, "paywall", "https://domain/a.pdf");
-    expect(self.recordCapture).toHaveBeenCalledWith(`${STATUS_ACCESS_ERROR}: paywall`, "https://domain/a.pdf");
-    expect(self.failCapture).toHaveBeenCalledWith("paywall");
+    recordCaptureFailure(STATUS_ACCESS_ERROR, REASON, PDF_URL);
+    expect(self.recordCapture).toHaveBeenCalledWith(`${STATUS_ACCESS_ERROR}: ${REASON}`, PDF_URL);
+    expect(self.failCapture).toHaveBeenCalledWith(REASON);
   });
 });
 

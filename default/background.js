@@ -1,5 +1,6 @@
 let captureSession = null;
 let downloadLog = "";
+let jobPageCounter = 0;
 
 browser.webRequest.onHeadersReceived.addListener(
   (details) => {
@@ -11,6 +12,7 @@ browser.webRequest.onHeadersReceived.addListener(
     captureSession.sawPdf = true;
     clearTimeout(captureSession.timeoutId);
     self.sendStatus("PDF response detected; capturing…");
+    self.recordCapture(self.STATUS_SUCCESS, details.url);
 
     if (retrievingAttachment(details)) {
       captureSession.expectBrowserDownload = true;
@@ -30,6 +32,7 @@ browser.downloads.onChanged.addListener((delta) => {
     if (!item) return;
     if (captureSession !== null && (item.mime.includes("application/pdf") || item.filename.endsWith(".pdf"))) {
       self.sendStatus(`✅ Saved PDF to ${item.filename}`);
+      self.recordDownload(self.STATUS_SUCCESS, item.filename.split(/[\\/]/).pop());
       downloadLog = downloadLog.concat(captureSession.doi, ",", item.filename, "\n");
       captureSession = null;
     }

@@ -128,9 +128,11 @@ ai_usage:
         approach was chosen by the maintainer from options the agent
         proposed. Tested by the agent with `npm test` (99/99 passing, tests
         added to default/tests/background.test.js) and manually in Firefox by
-        the maintainer.
+        the maintainer. Revised by the agent on 2026-09-26 to address the
+        maintainer's review of PR #9 (test values moved into constants, the
+        previous session passed explicitly to recordCapture).
       tools_used: [Claude Code]
-      notes: pending maintainer review before merge.
+      notes: human-reviewed by the maintainer in PR #9.
 
 declaration:
   date: "2026-09-26"

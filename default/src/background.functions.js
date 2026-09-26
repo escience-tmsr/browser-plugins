@@ -68,7 +68,7 @@ function armCaptureBase(doi, tabId, expectedUrl) {
     clearTimeout(captureSession.timeoutId);
     if (! captureSession.sawPdf) {
       self.recordCapture(`${self.STATUS_SKIPPED}: HTML page, searched as page ${jobPageCounter + 1}`,
-                         captureSession.lastMainUrl || captureSession.expectedUrl);
+                         captureSession.lastMainUrl || captureSession.expectedUrl, captureSession);
     }
   }
   // The k-th capture of a job always follows a link found on page k (page 1 being the

@@ -1,4 +1,4 @@
-const { CAPTURE_TIMEOUT_MS, armCaptureBase, failCapture, inRetrievePdfSession, looksPaywalledUrl, processIncomingPdfData, recordCapture, recordCaptureFailure, recordDownload, removeSlashes, retrievingAttachment, retrievingPdfFile, sanitizeDOI, sendProgressUpdate, startJob, storeDetailsInSessionData }  = require("../src/background.functions");
+const { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, armCaptureBase, failCapture, inRetrievePdfSession, looksPaywalledUrl, processIncomingPdfData, recordCapture, recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment, retrievingPdfFile, sanitizeDOI, seedPageLoadRow, sendProgressUpdate, startJob, storeDetailsInSessionData }  = require("../src/background.functions");
 const { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED } = require("../src/progress");
 const STATUS_CONSTANTS = { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED };
 
@@ -210,6 +210,7 @@ describe("startJob", () => {
     jest.clearAllMocks();
     global.self = {
       sanitizeDOI: (doi) => doi,
+      seedPageLoadRow: jest.fn(),
       sendStatus: jest.fn(),
     }
     global.browser = {
@@ -224,6 +225,11 @@ describe("startJob", () => {
     const [ returnValue ] = global.browser.storage.local.set.mock.calls[0];
     expect(returnValue.job.url).toBe(url);
     expect(browser.tabs.create).toHaveBeenCalledWith({ url });
+  });
+
+  test("shows a placeholder row for the DOI page", async() => {
+    await startJob(doi);
+    expect(self.seedPageLoadRow).toHaveBeenCalledWith(doi, url);
   });
 
   test("starts counting pages from zero again", async() => {
@@ -492,6 +498,91 @@ describe("recording functions", () => {
     recordCaptureFailure(STATUS_ACCESS_ERROR, REASON, PDF_URL);
     expect(self.recordCapture).toHaveBeenCalledWith(`${STATUS_ACCESS_ERROR}: ${REASON}`, PDF_URL);
     expect(self.failCapture).toHaveBeenCalledWith(REASON);
+  });
+});
+
+describe("page-load and link-search recording", () => {
+  const DOI = "10.1234/doi";
+  const DOI_URL = "https://doi.org/" + DOI;
+  const PAGE_URL = "https://publisher.example/article";
+  const PDF_URL = "https://publisher.example/article.pdf";
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    global.self = {
+      ...STATUS_CONSTANTS,
+      recordPublisherPageAccess: jest.fn(),
+      recordPdfLinkFound: jest.fn(),
+      sendProgressUpdate: jest.fn(),
+      sendStatus: jest.fn(),
+    };
+    global.jobPageCounter = 0;
+    global.pageLoadTimeoutId = null;
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test("seedPageLoadRow shows page 1 as skipped until it is confirmed", () => {
+    seedPageLoadRow(DOI, DOI_URL);
+    expect(self.recordPublisherPageAccess).toHaveBeenCalledWith(DOI, 1, STATUS_SKIPPED, DOI_URL);
+    expect(self.sendProgressUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  test("seedPageLoadRow marks page 1 as failed when it is not confirmed in time", () => {
+    seedPageLoadRow(DOI, DOI_URL);
+    jest.advanceTimersByTime(PAGE_LOAD_TIMEOUT_MS);
+    expect(self.recordPublisherPageAccess).toHaveBeenLastCalledWith(
+      DOI, 1, `${STATUS_ACCESS_ERROR}: page did not load`, DOI_URL);
+    expect(self.sendProgressUpdate).toHaveBeenCalledTimes(2);
+    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching(DOI_URL), true);
+  });
+
+  test("seedPageLoadRow cancels the timeout of an earlier job", () => {
+    const OTHER_DOI = "10.1234/other";
+    seedPageLoadRow(OTHER_DOI, "https://doi.org/" + OTHER_DOI);
+    seedPageLoadRow(DOI, DOI_URL);
+    jest.runAllTimers();
+    expect(self.recordPublisherPageAccess).not.toHaveBeenCalledWith(
+      OTHER_DOI, 1, expect.stringMatching(`^${STATUS_ACCESS_ERROR}`), expect.anything());
+  });
+
+  test("a confirmed page load is recorded and cancels the page-load timeout", () => {
+    seedPageLoadRow(DOI, DOI_URL);
+    recordContentProgress({ stage: "page", doi: DOI, url: PAGE_URL });
+    expect(self.recordPublisherPageAccess).toHaveBeenLastCalledWith(DOI, 1, STATUS_SUCCESS, PAGE_URL);
+    jest.runAllTimers();
+    expect(self.recordPublisherPageAccess).toHaveBeenLastCalledWith(DOI, 1, STATUS_SUCCESS, PAGE_URL);
+  });
+
+  test("a page load belongs to the page after the ones already captured", () => {
+    global.jobPageCounter = 2;
+    recordContentProgress({ stage: "page", doi: DOI, url: PAGE_URL });
+    expect(self.recordPublisherPageAccess).toHaveBeenCalledWith(DOI, global.jobPageCounter + 1, STATUS_SUCCESS, PAGE_URL);
+  });
+
+  test("a found link is recorded with its url", () => {
+    recordContentProgress({ stage: "link", doi: DOI, found: true, url: PDF_URL });
+    expect(self.recordPdfLinkFound).toHaveBeenCalledWith(DOI, 1, STATUS_SUCCESS, PDF_URL);
+    expect(self.sendProgressUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  test("a found button is recorded without a url", () => {
+    recordContentProgress({ stage: "link", doi: DOI, found: true, url: null });
+    expect(self.recordPdfLinkFound).toHaveBeenCalledWith(DOI, 1, STATUS_SUCCESS, null);
+  });
+
+  test("a missing link is recorded as not found", () => {
+    recordContentProgress({ stage: "link", doi: DOI, found: false, url: null });
+    expect(self.recordPdfLinkFound).toHaveBeenCalledWith(DOI, 1, STATUS_NOT_FOUND, null);
+  });
+
+  test("an unknown stage records nothing", () => {
+    recordContentProgress({ stage: "other", doi: DOI });
+    expect(self.recordPublisherPageAccess).not.toHaveBeenCalled();
+    expect(self.recordPdfLinkFound).not.toHaveBeenCalled();
+    expect(self.sendProgressUpdate).not.toHaveBeenCalled();
   });
 });
 

@@ -159,9 +159,10 @@ const exported = {
 };
 
 /* istanbul ignore next */
-if (typeof self === "undefined") {
+if (typeof module !== "undefined") {
   module.exports = exported;
-} else {
-  module.exports = exported;
+}
+/* istanbul ignore next */
+if (typeof self !== "undefined") {
   Object.assign(self, exported);
 }

@@ -1,14 +1,30 @@
+const { STATUS_SUCCESS, STATUS_NOT_FOUND } = require("../src/progress");
+const { PROGRESS_ELEMENT_ID, LOG_ELEMENT_ID } = require("../src/status-view");
+
+const DOI = "10.1000/example";
 const PAGE_URL = "moz-extension://extension-id/status-view.html";
 const OTHER_URL = "http://example.com";
-const TABLE_HTML = '<table><tbody><tr><td class="status-success">SUCCESS</td></tr></tbody></table>';
-const NEW_TABLE_HTML = "<table><tbody><tr><td>NOT_FOUND</td></tr></tbody></table>";
+const OTHER_TAB = { id: 7, windowId: 3, url: OTHER_URL };
+const STATUS_TAB = { id: 2, windowId: 4, url: PAGE_URL };
+const SUCCESS_CLASS = "status-success";
+const TABLE_HTML = `<table><tbody><tr><td class="${SUCCESS_CLASS}">${STATUS_SUCCESS}</td></tr></tbody></table>`;
+const NEW_TABLE_HTML = `<table><tbody><tr><td>${STATUS_NOT_FOUND}</td></tr></tbody></table>`;
 const LOG_TEXT = "PDF response detected; capturing…";
+const LOG_TEXTS = [LOG_TEXT, `✅ Saved PDF to ${DOI.replace("/", "_")}.pdf`];
 const UNSAFE_TEXT = "<b>not bold</b>";
 
 let statusView;
 
 function setUpStatusPage() {
-  document.body.innerHTML = '<div id="progress"></div><div id="log"></div>';
+  document.body.innerHTML = `<div id="${PROGRESS_ELEMENT_ID}"></div><div id="${LOG_ELEMENT_ID}"></div>`;
+}
+
+function progressElement() {
+  return document.getElementById(PROGRESS_ELEMENT_ID);
+}
+
+function logElement() {
+  return document.getElementById(LOG_ELEMENT_ID);
 }
 
 beforeEach(() => {
@@ -22,8 +38,8 @@ beforeEach(() => {
     },
     tabs: {
       query: jest.fn().mockResolvedValue([]),
-      create: jest.fn().mockResolvedValue({ id: 1 }),
-      update: jest.fn().mockResolvedValue({ id: 2 }),
+      create: jest.fn().mockResolvedValue({}),
+      update: jest.fn().mockResolvedValue({}),
     },
     windows: { update: jest.fn().mockResolvedValue({}) },
   };
@@ -32,7 +48,7 @@ beforeEach(() => {
 
 describe("openOrFocusStatusTab", () => {
   test("creates the status tab when none is open", async () => {
-    browser.tabs.query.mockResolvedValue([{ id: 7, windowId: 3, url: OTHER_URL }]);
+    browser.tabs.query.mockResolvedValue([OTHER_TAB]);
     await statusView.openOrFocusStatusTab();
     expect(browser.runtime.getURL).toHaveBeenCalledWith(statusView.STATUS_VIEW_PAGE);
     expect(browser.tabs.create).toHaveBeenCalledWith({ url: PAGE_URL });
@@ -40,13 +56,10 @@ describe("openOrFocusStatusTab", () => {
   });
 
   test("focuses an already-open status tab instead of creating a new one", async () => {
-    browser.tabs.query.mockResolvedValue([
-      { id: 7, windowId: 3, url: OTHER_URL },
-      { id: 2, windowId: 4, url: PAGE_URL },
-    ]);
+    browser.tabs.query.mockResolvedValue([OTHER_TAB, STATUS_TAB]);
     await statusView.openOrFocusStatusTab();
-    expect(browser.windows.update).toHaveBeenCalledWith(4, { focused: true });
-    expect(browser.tabs.update).toHaveBeenCalledWith(2, { active: true });
+    expect(browser.windows.update).toHaveBeenCalledWith(STATUS_TAB.windowId, { focused: true });
+    expect(browser.tabs.update).toHaveBeenCalledWith(STATUS_TAB.id, { active: true });
     expect(browser.tabs.create).not.toHaveBeenCalled();
   });
 });
@@ -57,36 +70,32 @@ describe("handleStatusViewMessage", () => {
   test("progress-update replaces the table content", () => {
     statusView.handleStatusViewMessage({ type: "progress-update", html: TABLE_HTML });
     statusView.handleStatusViewMessage({ type: "progress-update", html: NEW_TABLE_HTML });
-    const progress = document.getElementById("progress");
-    expect(progress.querySelectorAll("table").length).toBe(1);
-    expect(progress.querySelector("td").textContent).toBe("NOT_FOUND");
+    expect(progressElement().querySelectorAll("table").length).toBe(1);
+    expect(progressElement().querySelector("td").textContent).toBe(STATUS_NOT_FOUND);
   });
 
   test("progress-update keeps the status classes of the rendered table", () => {
     statusView.handleStatusViewMessage({ type: "progress-update", html: TABLE_HTML });
-    expect(document.querySelector("#progress td").className).toBe("status-success");
+    expect(progressElement().querySelector("td").className).toBe(SUCCESS_CLASS);
   });
 
   test("status appends a line to the log panel", () => {
-    statusView.handleStatusViewMessage({ type: "status", text: LOG_TEXT });
-    statusView.handleStatusViewMessage({ type: "status", text: LOG_TEXT });
-    const lines = document.getElementById("log").children;
-    expect(lines.length).toBe(2);
-    expect(lines[1].textContent).toBe(LOG_TEXT);
+    LOG_TEXTS.forEach((text) => statusView.handleStatusViewMessage({ type: "status", text }));
+    const lines = [...logElement().children].map((line) => line.textContent);
+    expect(lines).toEqual(LOG_TEXTS);
   });
 
   test("status text is shown as text, not parsed as HTML", () => {
     statusView.handleStatusViewMessage({ type: "status", text: UNSAFE_TEXT });
-    const log = document.getElementById("log");
-    expect(log.querySelector("b")).toBeNull();
-    expect(log.textContent).toBe(UNSAFE_TEXT);
+    expect(logElement().querySelector("b")).toBeNull();
+    expect(logElement().textContent).toBe(UNSAFE_TEXT);
   });
 
   test("other or missing messages change nothing", () => {
-    statusView.handleStatusViewMessage({ type: "start-job", doi: "10.1000/example" });
+    statusView.handleStatusViewMessage({ type: "start-job", doi: DOI });
     statusView.handleStatusViewMessage(undefined);
-    expect(document.getElementById("progress").childNodes.length).toBe(0);
-    expect(document.getElementById("log").childNodes.length).toBe(0);
+    expect(progressElement().childNodes.length).toBe(0);
+    expect(logElement().childNodes.length).toBe(0);
   });
 
   test("returns nothing, so it never answers another listener's message", () => {
@@ -114,7 +123,7 @@ describe("initStatusView", () => {
     await statusView.initStatusView();
     expect(browser.runtime.onMessage.addListener).toHaveBeenCalledWith(statusView.handleStatusViewMessage);
     expect(browser.runtime.sendMessage).toHaveBeenCalledWith({ type: "get-progress" });
-    expect(document.querySelector("#progress td").textContent).toBe("SUCCESS");
+    expect(progressElement().querySelector("td").textContent).toBe(STATUS_SUCCESS);
   });
 
   test("runs automatically when the script loads on the status page", () => {
@@ -126,6 +135,6 @@ describe("initStatusView", () => {
   test("keeps the table empty when the background has no answer", async () => {
     browser.runtime.sendMessage.mockRejectedValue(new Error("no receiver"));
     await statusView.initStatusView();
-    expect(document.getElementById("progress").childNodes.length).toBe(0);
+    expect(progressElement().childNodes.length).toBe(0);
   });
 });

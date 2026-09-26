@@ -63,6 +63,8 @@ function initStatusView() {
 if (typeof module !== "undefined") {
   module.exports = {
     STATUS_VIEW_PAGE,
+    PROGRESS_ELEMENT_ID,
+    LOG_ELEMENT_ID,
     openOrFocusStatusTab,
     replaceProgressTable,
     appendLogLine,

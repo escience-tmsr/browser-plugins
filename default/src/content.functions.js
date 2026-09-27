@@ -76,6 +76,9 @@ async function performAction(job, myTabId) {
 
   self.sendStatus("Arming capture…");
 
+  // The capture only watches this tab. If the button opens the PDF in a new tab
+  // (window.open, or a form with target="_blank"), the PDF is not captured and the
+  // capture is recorded as failed when it times out.
   await browser.runtime.sendMessage({
     type: "arm_capture_for_tab",
     doi: job.doi,

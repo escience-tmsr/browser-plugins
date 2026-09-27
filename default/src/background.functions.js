@@ -154,7 +154,12 @@ function startJob(doi) {
 
   jobPageCounter = 0;
   self.seedPageLoadRow(normalizedDoi, url);
-  return browser.tabs.create({ url }).then(tab => {
+  // Keep the status tab in view: open the DOI page in a background tab, where it
+  // loads and runs the content script as usual.
+  self.openOrFocusStatusTab().catch(err => {
+    self.sendStatus(`Could not open status table: ${err && err.message ? err.message : err}`, isError = true);
+  });
+  return browser.tabs.create({ url, active: false }).then(tab => {
     const job = {
       url,
       phrase,

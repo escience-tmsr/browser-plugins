@@ -2,6 +2,10 @@ const { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, armCaptureBase, failCapture, i
 const { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED } = require("../src/progress");
 const STATUS_CONSTANTS = { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED };
 
+// DOI used throughout these tests, and the doi.org address startJob opens for it.
+const DOI = "10.1234/doi";
+const DOI_URL = "https://doi.org/" + DOI;
+
 // The file name processIncomingPdfData saves a DOI's PDF under.
 function pdfFilename(doi) {
   return `${removeSlashes(doi)}.pdf`;
@@ -160,7 +164,7 @@ describe("processIncomingPdfData", () => {
   
   test("setting expectBrowserDownload prevents browser download", async () => {
     global.captureSession = {
-      "doi": "10.1234/doi",
+      "doi": DOI,
       "expectBrowserDownload": true
     };
     processIncomingPdfData({ requestId: "req-2" });
@@ -170,7 +174,7 @@ describe("processIncomingPdfData", () => {
 
   test("seems redundant?", async () => {
     global.captureSession = {
-      "doi": "10.1234/doi",
+      "doi": DOI,
       "expectBrowserDownload": false
     };
     processIncomingPdfData({ requestId: "req-3" });
@@ -189,7 +193,7 @@ describe("processIncomingPdfData", () => {
   });
 
   test("a failed save is recorded in the download stage of the capture's row", async () => {
-    const SAVE_SESSION = { doi: "10.1234/doi", pageCounter: 2, expectBrowserDownload: false };
+    const SAVE_SESSION = { doi: DOI, pageCounter: 2, expectBrowserDownload: false };
     const SAVE_ERROR = "disk full";
     global.captureSession = SAVE_SESSION;
     global.URL = { createObjectURL: jest.fn(), revokeObjectURL: jest.fn() };
@@ -203,9 +207,6 @@ describe("processIncomingPdfData", () => {
 });
 
 describe("startJob", () => {
-  const doi = "10.1234/foo.bar";
-  const url = "https://doi.org/" + doi;
-
   beforeEach(() => {
     jest.clearAllMocks();
     global.self = {
@@ -217,24 +218,24 @@ describe("startJob", () => {
       tabs: { create: jest.fn() },
       storage: { local: { set: jest.fn().mockResolvedValue(undefined) } }
     }
-    browser.tabs.create.mockResolvedValue(doi);
+    browser.tabs.create.mockResolvedValue(DOI);
   });
 
   test("default usage", async() => {
-    await startJob(doi);
+    await startJob(DOI);
     const [ returnValue ] = global.browser.storage.local.set.mock.calls[0];
-    expect(returnValue.job.url).toBe(url);
-    expect(browser.tabs.create).toHaveBeenCalledWith({ url });
+    expect(returnValue.job.url).toBe(DOI_URL);
+    expect(browser.tabs.create).toHaveBeenCalledWith({ url: DOI_URL });
   });
 
   test("shows a placeholder row for the DOI page", async() => {
-    await startJob(doi);
-    expect(self.seedPageLoadRow).toHaveBeenCalledWith(doi, url);
+    await startJob(DOI);
+    expect(self.seedPageLoadRow).toHaveBeenCalledWith(DOI, DOI_URL);
   });
 
   test("starts counting pages from zero again", async() => {
     global.jobPageCounter = 3;
-    await startJob(doi);
+    await startJob(DOI);
     expect(global.jobPageCounter).toBe(0);
   });
 
@@ -242,7 +243,7 @@ describe("startJob", () => {
     global.browser.storage.local.set = jest.fn().mockImplementation(() => {
       throw new Error("something went wrong!");
     });
-    await startJob(doi);
+    await startJob(DOI);
     expect(self.sendStatus).toHaveBeenCalledTimes(3);
   });
 });
@@ -253,13 +254,12 @@ describe("armCaptureOnly", () => {
       armCaptureBase: jest.fn(),
       sendStatus: jest.fn(), 
     }
-    const doi = "doi";
     const tabId = 123;
     const expectedUrl = "https://domain/dir";
-    const result = await armCaptureOnly(doi, tabId, expectedUrl);
+    const result = await armCaptureOnly(DOI, tabId, expectedUrl);
     expect(result).toBe(true);
     expect(self.sendStatus).toHaveBeenCalledTimes(1);
-    expect(self.armCaptureBase).toHaveBeenCalledWith(doi, tabId, expectedUrl);
+    expect(self.armCaptureBase).toHaveBeenCalledWith(DOI, tabId, expectedUrl);
   });
 });
 
@@ -270,18 +270,16 @@ describe("armCaptureAndNavigate", () => {
       sendStatus: jest.fn(), 
     };
     global.browser = {tabs: {update: jest.fn(), }};
-    const doi = "doi";
     const tabId = 123;
     const expectedUrl = "https://domain/dir";
-    const result = armCaptureAndNavigate(doi, tabId, expectedUrl);
+    const result = armCaptureAndNavigate(DOI, tabId, expectedUrl);
     expect(self.sendStatus).toHaveBeenCalledTimes(1);
-    expect(self.armCaptureBase).toHaveBeenCalledWith(doi, tabId, expectedUrl);
+    expect(self.armCaptureBase).toHaveBeenCalledWith(DOI, tabId, expectedUrl);
     expect(browser.tabs.update).toHaveBeenCalledWith(tabId, {"url": expectedUrl});
   });
 });
 
 describe("armCaptureBase", () => {
-  const doi = "doi";
   const tabId = 123;
   let expectedUrl = "";
 
@@ -299,10 +297,10 @@ describe("armCaptureBase", () => {
   });
 
   test("without automatic download", async () => {
-    const returnedFileType = armCaptureBase(doi, tabId, expectedUrl);
+    const returnedFileType = armCaptureBase(DOI, tabId, expectedUrl);
     expect(global.captureSession).not.toBe(null);
     expect(global.captureSession.tabId).toBe(tabId);
-    expect(global.captureSession.doi).toBe(doi);
+    expect(global.captureSession.doi).toBe(DOI);
     expect(global.captureSession.expectedUrl).toBe(expectedUrl);
     expect(global.captureSession.sawPdf).toBe(false);
     //expect(global.captureSession.timeoutId).toBe(null);
@@ -315,18 +313,18 @@ describe("armCaptureBase", () => {
 
   test("with automatic download", async () => {
     expectedUrl = "download?file=abc.pdf";
-    const returnedFileType = armCaptureBase(doi, tabId, expectedUrl);
+    const returnedFileType = armCaptureBase(DOI, tabId, expectedUrl);
     expect(returnedFileType).toBe("PDF");
   });
 
   test("missing expected url", async () => {
-    const returnedFileType = armCaptureBase(doi, tabId, null);
+    const returnedFileType = armCaptureBase(DOI, tabId, null);
     expect(returnedFileType).toBe("unknown");
    });
 
   test("download that takes too much time", async () => {
     jest.useFakeTimers();
-    const returnedFileType = armCaptureBase(doi, tabId, expectedUrl);
+    const returnedFileType = armCaptureBase(DOI, tabId, expectedUrl);
     expect(self.failCapture).toHaveBeenCalledTimes(0);
     jest.runAllTimers();
     expect(self.failCapture).toHaveBeenCalledTimes(1);
@@ -337,7 +335,7 @@ describe("armCaptureBase", () => {
 
   test("reading html page", async () => {
     jest.useFakeTimers();
-    const returnedFileType = await armCaptureBase(doi, tabId, expectedUrl);
+    const returnedFileType = await armCaptureBase(DOI, tabId, expectedUrl);
     expect(self.sendStatus).toHaveBeenCalledTimes(1);
     global.captureSession.lastMainContentType = "text/html";
     self.looksPaywalledUrl = jest.fn().mockReturnValue(false);
@@ -351,7 +349,7 @@ describe("armCaptureBase", () => {
 
   test("fethcing html page takes two much time", async () => {
     jest.useFakeTimers();
-    returnedFileType = await armCaptureBase(doi, tabId, expectedUrl);
+    returnedFileType = await armCaptureBase(DOI, tabId, expectedUrl);
     global.captureSession.lastMainContentType = "text/html";
     self.looksPaywalledUrl = jest.fn().mockReturnValue(true);
     self.failCapture.mockClear();
@@ -364,7 +362,7 @@ describe("armCaptureBase", () => {
 
   test("take care of incorrect status code", async () => {
     jest.useFakeTimers();
-    returnedFileType = await armCaptureBase(doi, tabId, expectedUrl);
+    returnedFileType = await armCaptureBase(DOI, tabId, expectedUrl);
     global.captureSession.lastMainStatus = 401;
     self.failCapture.mockClear();
     jest.runAllTimers();
@@ -376,7 +374,7 @@ describe("armCaptureBase", () => {
 
   test("a failed capture is recorded with its status and target url", () => {
     jest.useFakeTimers();
-    armCaptureBase(doi, tabId, expectedUrl);
+    armCaptureBase(DOI, tabId, expectedUrl);
     global.captureSession.lastMainStatus = 403;
     jest.runAllTimers();
     expect(self.recordCapture).toHaveBeenCalledWith(
@@ -386,7 +384,7 @@ describe("armCaptureBase", () => {
 
   test("a capture without any PDF response is recorded as not found", () => {
     jest.useFakeTimers();
-    armCaptureBase(doi, tabId, expectedUrl);
+    armCaptureBase(DOI, tabId, expectedUrl);
     jest.runAllTimers();
     expect(self.recordCapture).toHaveBeenCalledWith(
       expect.stringMatching(`^${STATUS_NOT_FOUND}: No PDF response`), expectedUrl);
@@ -394,41 +392,41 @@ describe("armCaptureBase", () => {
   });
 
   test("each capture of a job gets the next page number", () => {
-    armCaptureBase(doi, tabId, expectedUrl);
+    armCaptureBase(DOI, tabId, expectedUrl);
     expect(global.captureSession.pageCounter).toBe(1);
-    armCaptureBase(doi, tabId, expectedUrl);
+    armCaptureBase(DOI, tabId, expectedUrl);
     expect(global.captureSession.pageCounter).toBe(2);
     expect(global.jobPageCounter).toBe(2);
   });
 
   test("captures after the first one have an unknown target type", () => {
-    expect(armCaptureBase(doi, tabId, expectedUrl)).toBe("HTML");
-    expect(armCaptureBase(doi, tabId, expectedUrl)).toBe("unknown");
+    expect(armCaptureBase(DOI, tabId, expectedUrl)).toBe("HTML");
+    expect(armCaptureBase(DOI, tabId, expectedUrl)).toBe("unknown");
   });
 
   test("a new capture records the previous page's capture as skipped", () => {
     const LANDING_URL = "https://domain/landing";
-    armCaptureBase(doi, tabId, expectedUrl);
+    armCaptureBase(DOI, tabId, expectedUrl);
     const previousSession = global.captureSession;
     previousSession.lastMainUrl = LANDING_URL;
-    armCaptureBase(doi, tabId, expectedUrl);
+    armCaptureBase(DOI, tabId, expectedUrl);
     expect(self.recordCapture).toHaveBeenCalledWith(
       `${STATUS_SKIPPED}: HTML page, searched as page ${previousSession.pageCounter + 1}`,
       LANDING_URL, previousSession);
   });
 
   test("a new capture does not overwrite a previous capture that saw a PDF", () => {
-    armCaptureBase(doi, tabId, expectedUrl);
+    armCaptureBase(DOI, tabId, expectedUrl);
     global.captureSession.sawPdf = true;
-    armCaptureBase(doi, tabId, expectedUrl);
+    armCaptureBase(DOI, tabId, expectedUrl);
     expect(self.recordCapture).not.toHaveBeenCalled();
   });
 
   test("a new capture cancels the previous capture's timeout", () => {
     jest.useFakeTimers();
-    armCaptureBase(doi, tabId, expectedUrl);
+    armCaptureBase(DOI, tabId, expectedUrl);
     jest.advanceTimersByTime(CAPTURE_TIMEOUT_MS / 2);
-    armCaptureBase(doi, tabId, expectedUrl);
+    armCaptureBase(DOI, tabId, expectedUrl);
     jest.advanceTimersByTime(CAPTURE_TIMEOUT_MS / 2);
     expect(self.failCapture).not.toHaveBeenCalled();
     expect(global.captureSession).not.toBe(null);
@@ -439,7 +437,7 @@ describe("armCaptureBase", () => {
 });
 
 describe("recording functions", () => {
-  const session = { doi: "10.1234/doi", pageCounter: 2 };
+  const session = { doi: DOI, pageCounter: 2 };
   const otherSession = { doi: "10.1234/other", pageCounter: 3 };
   const html = "<table></table>";
   const PDF_URL = "https://domain/a.pdf";
@@ -502,8 +500,6 @@ describe("recording functions", () => {
 });
 
 describe("page-load and link-search recording", () => {
-  const DOI = "10.1234/doi";
-  const DOI_URL = "https://doi.org/" + DOI;
   const PAGE_URL = "https://publisher.example/article";
   const PDF_URL = "https://publisher.example/article.pdf";
 

@@ -88,6 +88,9 @@ describe("performAction", () => {
     expect(sentMessageTypes()).toEqual(["record-progress", "download_pdf_via_tab_capture"]);
   });
 
+  // The capture is armed for this tab only: a button that opens the PDF in a new tab
+  // (window.open, or a form with target="_blank") is not captured, and the capture is
+  // recorded as failed when it times out. See the comment in performAction.
   test("a found button is recorded without a url before the capture is armed", async() => {
     self.findElementByPhrase = jest.fn().mockReturnValue(document.createElement("button"));
     await performAction(job, myTabId);

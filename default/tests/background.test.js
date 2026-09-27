@@ -210,6 +210,7 @@ describe("startJob", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     global.self = {
+      openOrFocusStatusTab: jest.fn().mockResolvedValue({}),
       sanitizeDOI: (doi) => doi,
       seedPageLoadRow: jest.fn(),
       sendStatus: jest.fn(),
@@ -225,7 +226,22 @@ describe("startJob", () => {
     await startJob(DOI);
     const [ returnValue ] = global.browser.storage.local.set.mock.calls[0];
     expect(returnValue.job.url).toBe(DOI_URL);
-    expect(browser.tabs.create).toHaveBeenCalledWith({ url: DOI_URL });
+    expect(browser.tabs.create).toHaveBeenCalledWith({ url: DOI_URL, active: false });
+  });
+
+  test("opens the status tab and keeps it in view", async() => {
+    await startJob(DOI);
+    expect(self.openOrFocusStatusTab).toHaveBeenCalledTimes(1);
+    expect(browser.tabs.create).toHaveBeenCalledWith(expect.objectContaining({ active: false }));
+  });
+
+  test("still starts the job when the status tab cannot be opened", async() => {
+    self.openOrFocusStatusTab.mockRejectedValue(new Error("no tabs"));
+    await startJob(DOI);
+    await Promise.resolve();  // let the rejection handler run
+    expect(browser.tabs.create).toHaveBeenCalledWith({ url: DOI_URL, active: false });
+    expect(browser.storage.local.set).toHaveBeenCalledTimes(1);
+    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching("^Could not open status table"), true);
   });
 
   test("shows a placeholder row for the DOI page", async() => {

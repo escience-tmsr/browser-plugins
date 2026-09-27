@@ -1,5 +1,8 @@
 const { STATUS_SUCCESS, STATUS_NOT_FOUND } = require("../src/progress");
-const { STATUS_VIEW_PAGE, PROGRESS_ELEMENT_ID, LOG_ELEMENT_ID } = require("../src/status-view");
+const {
+  STATUS_VIEW_PAGE, PROGRESS_ELEMENT_ID, LOG_ELEMENT_ID, SCROLL_BOTTOM_TOLERANCE_PX,
+  COUNT_ID_SUFFIX, NEW_ENTRIES_ID_SUFFIX, SCROLLED_CLASS,
+} = require("../src/status-view");
 
 const DOI = "10.1000/example";
 const EXTENSION_BASE_URL = "moz-extension://extension-id/";
@@ -16,8 +19,15 @@ const UNSAFE_TEXT = "<b>not bold</b>";
 
 let statusView;
 
+// The same structure as status-view.html: a heading with a count, and a container
+// with the scrolling area and its "new entries" button.
+function paneHtml(id) {
+  return `<h2><span id="${id}${COUNT_ID_SUFFIX}"></span></h2>
+    <div><div id="${id}"></div><button id="${id}${NEW_ENTRIES_ID_SUFFIX}" hidden></button></div>`;
+}
+
 function setUpStatusPage() {
-  document.body.innerHTML = `<div id="${PROGRESS_ELEMENT_ID}"></div><div id="${LOG_ELEMENT_ID}"></div>`;
+  document.body.innerHTML = paneHtml(PROGRESS_ELEMENT_ID) + paneHtml(LOG_ELEMENT_ID);
 }
 
 function firstCell(html) {
@@ -105,6 +115,171 @@ describe("handleStatusViewMessage", () => {
 
   test("returns nothing, so it never answers another listener's message", () => {
     expect(statusView.handleStatusViewMessage({ type: "status", text: LOG_TEXT })).toBeUndefined();
+  });
+});
+
+describe("following the bottom of the table and the log", () => {
+  // jsdom does not lay out pages, so each scrolling area gets its size by hand:
+  // CONTENT_HEIGHT of content, of which VIEW_HEIGHT is visible.
+  const CONTENT_HEIGHT = 500;
+  const VIEW_HEIGHT = 100;
+  const BOTTOM = CONTENT_HEIGHT - VIEW_HEIGHT;  // scrollTop when scrolled to the bottom
+  const SCROLLED_UP = 0;
+
+  function setScrollPosition(element, scrollTop) {
+    Object.defineProperty(element, "scrollHeight", { value: CONTENT_HEIGHT, configurable: true });
+    Object.defineProperty(element, "clientHeight", { value: VIEW_HEIGHT, configurable: true });
+    Object.defineProperty(element, "scrollTop", { value: scrollTop, writable: true, configurable: true });
+  }
+
+  beforeEach(setUpStatusPage);
+
+  test("a new table is scrolled to the bottom when the table was at the bottom", () => {
+    setScrollPosition(progressElement(), BOTTOM);
+    statusView.handleStatusViewMessage({ type: "progress-update", html: TABLE_HTML });
+    expect(progressElement().scrollTop).toBe(CONTENT_HEIGHT);
+  });
+
+  test("a new table keeps the scroll position when the viewer scrolled up", () => {
+    setScrollPosition(progressElement(), SCROLLED_UP);
+    statusView.handleStatusViewMessage({ type: "progress-update", html: TABLE_HTML });
+    expect(progressElement().scrollTop).toBe(SCROLLED_UP);
+  });
+
+  test("a new log line is scrolled into view when the log was at the bottom", () => {
+    setScrollPosition(logElement(), BOTTOM);
+    statusView.handleStatusViewMessage({ type: "status", text: LOG_TEXT });
+    expect(logElement().scrollTop).toBe(CONTENT_HEIGHT);
+  });
+
+  test("a new log line keeps the scroll position when the viewer scrolled up", () => {
+    setScrollPosition(logElement(), SCROLLED_UP);
+    statusView.handleStatusViewMessage({ type: "status", text: LOG_TEXT });
+    expect(logElement().scrollTop).toBe(SCROLLED_UP);
+  });
+
+  test("a position just above the bottom still counts as the bottom", () => {
+    setScrollPosition(logElement(), BOTTOM - SCROLL_BOTTOM_TOLERANCE_PX);
+    statusView.handleStatusViewMessage({ type: "status", text: LOG_TEXT });
+    expect(logElement().scrollTop).toBe(CONTENT_HEIGHT);
+  });
+
+  test("a position further above the bottom does not", () => {
+    const position = BOTTOM - SCROLL_BOTTOM_TOLERANCE_PX - 1;
+    setScrollPosition(logElement(), position);
+    statusView.handleStatusViewMessage({ type: "status", text: LOG_TEXT });
+    expect(logElement().scrollTop).toBe(position);
+  });
+});
+
+describe("scroll indicators", () => {
+  // As above: CONTENT_HEIGHT of content, of which VIEW_HEIGHT is visible.
+  const CONTENT_HEIGHT = 500;
+  const VIEW_HEIGHT = 100;
+  const BOTTOM = CONTENT_HEIGHT - VIEW_HEIGHT;
+  const TOP = 0;
+  const TWO_ROWS_HTML = TABLE_HTML.replace("</tbody>", "<tr><td></td></tr></tbody>");
+
+  function setScrollPosition(element, scrollTop) {
+    Object.defineProperty(element, "scrollHeight", { value: CONTENT_HEIGHT, configurable: true });
+    Object.defineProperty(element, "clientHeight", { value: VIEW_HEIGHT, configurable: true });
+    Object.defineProperty(element, "scrollTop", { value: scrollTop, writable: true, configurable: true });
+  }
+
+  function scrollTo(element, scrollTop) {
+    element.scrollTop = scrollTop;
+    element.dispatchEvent(new Event("scroll"));
+  }
+
+  function countText(id) {
+    return document.getElementById(id + COUNT_ID_SUFFIX).textContent;
+  }
+
+  function newEntriesButton(id) {
+    return document.getElementById(id + NEW_ENTRIES_ID_SUFFIX);
+  }
+
+  function hasShadow(element) {
+    return element.parentElement.classList.contains(SCROLLED_CLASS);
+  }
+
+  function sendLogLines() {
+    LOG_TEXTS.forEach((text) => statusView.handleStatusViewMessage({ type: "status", text }));
+  }
+
+  beforeEach(async () => {
+    setUpStatusPage();
+    browser.runtime.sendMessage.mockResolvedValue({});  // start with an empty table
+    await statusView.initStatusView();
+  });
+
+  test("the headings count the table rows and log lines", () => {
+    statusView.handleStatusViewMessage({ type: "progress-update", html: TWO_ROWS_HTML });
+    sendLogLines();
+    expect(countText(PROGRESS_ELEMENT_ID)).toBe("(2 rows)");
+    expect(countText(LOG_ELEMENT_ID)).toBe(`(${LOG_TEXTS.length} lines)`);
+  });
+
+  test("a count of one uses the singular", () => {
+    statusView.handleStatusViewMessage({ type: "status", text: LOG_TEXT });
+    expect(countText(LOG_ELEMENT_ID)).toBe("(1 line)");
+  });
+
+  test("the shadow shows while the content is scrolled down", () => {
+    setScrollPosition(logElement(), TOP);
+    scrollTo(logElement(), BOTTOM);
+    expect(hasShadow(logElement())).toBe(true);
+    scrollTo(logElement(), TOP);
+    expect(hasShadow(logElement())).toBe(false);
+  });
+
+  test("following the bottom scrolls the content down, which shows the shadow", () => {
+    setScrollPosition(progressElement(), BOTTOM);
+    statusView.handleStatusViewMessage({ type: "progress-update", html: TABLE_HTML });
+    expect(hasShadow(progressElement())).toBe(true);
+  });
+
+  test("new log lines below the view are counted on the button", () => {
+    setScrollPosition(logElement(), TOP);
+    sendLogLines();
+    expect(newEntriesButton(LOG_ELEMENT_ID).hidden).toBe(false);
+    expect(newEntriesButton(LOG_ELEMENT_ID).textContent).toBe(`▼ ${LOG_TEXTS.length} new lines`);
+  });
+
+  test("new table rows below the view are counted on the button", () => {
+    setScrollPosition(progressElement(), TOP);
+    statusView.handleStatusViewMessage({ type: "progress-update", html: TABLE_HTML });
+    expect(newEntriesButton(PROGRESS_ELEMENT_ID).textContent).toBe("▼ 1 new row");
+    statusView.handleStatusViewMessage({ type: "progress-update", html: TWO_ROWS_HTML });
+    expect(newEntriesButton(PROGRESS_ELEMENT_ID).textContent).toBe("▼ 2 new rows");
+  });
+
+  test("a table update without new rows adds nothing to the button", () => {
+    setScrollPosition(progressElement(), TOP);
+    statusView.handleStatusViewMessage({ type: "progress-update", html: TABLE_HTML });
+    statusView.handleStatusViewMessage({ type: "progress-update", html: TABLE_HTML });
+    expect(newEntriesButton(PROGRESS_ELEMENT_ID).textContent).toBe("▼ 1 new row");
+  });
+
+  test("the button stays hidden while the view follows the bottom", () => {
+    setScrollPosition(logElement(), BOTTOM);
+    sendLogLines();
+    expect(newEntriesButton(LOG_ELEMENT_ID).hidden).toBe(true);
+  });
+
+  test("clicking the button jumps to the bottom and hides it", () => {
+    setScrollPosition(logElement(), TOP);
+    sendLogLines();
+    newEntriesButton(LOG_ELEMENT_ID).click();
+    expect(logElement().scrollTop).toBe(CONTENT_HEIGHT);
+    expect(newEntriesButton(LOG_ELEMENT_ID).hidden).toBe(true);
+  });
+
+  test("scrolling back to the bottom hides the button", () => {
+    setScrollPosition(logElement(), TOP);
+    sendLogLines();
+    scrollTo(logElement(), BOTTOM);
+    expect(newEntriesButton(LOG_ELEMENT_ID).hidden).toBe(true);
   });
 });
 

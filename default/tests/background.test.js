@@ -1,10 +1,13 @@
-const { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureBase, failCapture, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange, processIncomingPdfData, recordCapture, recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment, retrievingPdfFile, sanitizeDOI, seedPageLoadRow, sendProgressUpdate, startJob, storeDetailsInSessionData }  = require("../src/background.functions");
+const { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureBase, checkRobotsBeforeRequest, failCapture, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange, processIncomingPdfData, recordCapture, recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment, retrievingPdfFile, sanitizeDOI, seedPageLoadRow, sendProgressUpdate, startJob, storeDetailsInSessionData }  = require("../src/background.functions");
 const { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED, STATUS_PENDING } = require("../src/progress");
 const STATUS_CONSTANTS = { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED, STATUS_PENDING };
 
 // DOI used throughout these tests, and the doi.org address startJob opens for it.
 const DOI = "10.1234/doi";
 const DOI_URL = "https://doi.org/" + DOI;
+// The tab startJob opens for a job, which first shows an empty page.
+const JOB_TAB_ID = 7;
+const EMPTY_PAGE_URL = "about:blank";
 
 // The file name processIncomingPdfData saves a DOI's PDF under.
 function pdfFilename(doi) {
@@ -343,17 +346,33 @@ describe("startJob", () => {
       sendStatus: jest.fn(),
     }
     global.browser = {
-      tabs: { create: jest.fn() },
+      tabs: { create: jest.fn(), update: jest.fn().mockResolvedValue({}) },
       storage: { local: { set: jest.fn().mockResolvedValue(undefined) } }
     }
-    browser.tabs.create.mockResolvedValue(DOI);
+    browser.tabs.create.mockResolvedValue({ id: JOB_TAB_ID });
   });
 
   test("default usage", async() => {
     await startJob(DOI);
     const [ returnValue ] = global.browser.storage.local.set.mock.calls[0];
     expect(returnValue.job.url).toBe(DOI_URL);
-    expect(browser.tabs.create).toHaveBeenCalledWith({ url: DOI_URL, active: false });
+    expect(returnValue.job.tabId).toBe(JOB_TAB_ID);
+    expect(browser.tabs.update).toHaveBeenCalledWith(JOB_TAB_ID, { url: DOI_URL });
+  });
+
+  test("opens an empty tab and loads the DOI page only after storing the job", async() => {
+    await startJob(DOI);
+    expect(browser.tabs.create).toHaveBeenCalledWith({ url: EMPTY_PAGE_URL, active: false });
+    const storeOrder = browser.storage.local.set.mock.invocationCallOrder[0];
+    const loadOrder = browser.tabs.update.mock.invocationCallOrder[0];
+    expect(storeOrder).toBeLessThan(loadOrder);
+  });
+
+  test("does not load the DOI page when the job cannot be stored", async() => {
+    browser.storage.local.set.mockRejectedValue(new Error("storage full"));
+    await startJob(DOI);
+    expect(browser.tabs.update).not.toHaveBeenCalled();
+    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching("^Could not start job"), true);
   });
 
   test("opens the status tab and keeps it in view", async() => {
@@ -366,7 +385,7 @@ describe("startJob", () => {
     self.openOrFocusStatusTab.mockRejectedValue(new Error("no tabs"));
     await startJob(DOI);
     await Promise.resolve();  // let the rejection handler run
-    expect(browser.tabs.create).toHaveBeenCalledWith({ url: DOI_URL, active: false });
+    expect(browser.tabs.update).toHaveBeenCalledWith(JOB_TAB_ID, { url: DOI_URL });
     expect(browser.storage.local.set).toHaveBeenCalledTimes(1);
     expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching("^Could not open status table"), true);
   });
@@ -388,6 +407,56 @@ describe("startJob", () => {
     });
     await startJob(DOI);
     expect(self.sendStatus).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("checkRobotsBeforeRequest", () => {
+  const OTHER_TAB_ID = 8;
+  const PAGE_URL = "https://publisher.example.org/article/1";
+  const BLOCK_REASON = "blocked by robots.txt";
+
+  function pageRequest(tabId) {
+    return { tabId, url: PAGE_URL, type: "main_frame" };
+  }
+
+  beforeEach(() => {
+    global.self = {
+      robotsAccessAllowed: jest.fn().mockResolvedValue({ accessAllowed: true, blockReason: null }),
+      sendStatus: jest.fn(),
+    };
+    global.browser = {
+      storage: { local: { get: jest.fn().mockResolvedValue({ job: { doi: DOI, tabId: JOB_TAB_ID } }) } },
+    };
+  });
+
+  test("lets an allowed request in the job's tab pass", async() => {
+    await expect(checkRobotsBeforeRequest(pageRequest(JOB_TAB_ID))).resolves.toEqual({});
+    expect(self.robotsAccessAllowed).toHaveBeenCalledWith(PAGE_URL);
+    expect(self.sendStatus).not.toHaveBeenCalled();
+  });
+
+  test("cancels a disallowed request in the job's tab and reports why", async() => {
+    self.robotsAccessAllowed.mockResolvedValue({ accessAllowed: false, blockReason: BLOCK_REASON });
+    await expect(checkRobotsBeforeRequest(pageRequest(JOB_TAB_ID))).resolves.toEqual({ cancel: true });
+    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringContaining(PAGE_URL), true);
+    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringContaining(BLOCK_REASON), true);
+  });
+
+  test("cancels the request when the check itself fails", async() => {
+    self.robotsAccessAllowed.mockRejectedValue(new Error("unexpected"));
+    await expect(checkRobotsBeforeRequest(pageRequest(JOB_TAB_ID))).resolves.toEqual({ cancel: true });
+    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringContaining("robots.txt check failed: unexpected"), true);
+  });
+
+  test("lets requests in other tabs pass without a check", async() => {
+    await expect(checkRobotsBeforeRequest(pageRequest(OTHER_TAB_ID))).resolves.toEqual({});
+    expect(self.robotsAccessAllowed).not.toHaveBeenCalled();
+  });
+
+  test("lets requests pass without a check when there is no job", async() => {
+    browser.storage.local.get.mockResolvedValue({});
+    await expect(checkRobotsBeforeRequest(pageRequest(JOB_TAB_ID))).resolves.toEqual({});
+    expect(self.robotsAccessAllowed).not.toHaveBeenCalled();
   });
 });
 

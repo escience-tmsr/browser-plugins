@@ -26,6 +26,13 @@ browser.webRequest.onHeadersReceived.addListener(
   ["blocking", "responseHeaders"]
 );
 
+// Cancel page requests in the job's tab that robots.txt does not allow.
+browser.webRequest.onBeforeRequest.addListener(
+  (requestDetails) => self.checkRobotsBeforeRequest(requestDetails),
+  { urls: ["<all_urls>"], types: ["main_frame"] },
+  ["blocking"]
+);
+
 browser.downloads.onChanged.addListener((delta) => {
   self.processDownloadChange(delta);
 });

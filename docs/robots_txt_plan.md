@@ -89,7 +89,7 @@ the guard never sees them and cannot call itself.
 
 ## 4. Fetching and caching robots.txt (`src/robots.js`)
 
-`robotsAccessAllowed(url)` returns a Promise of `{ allowed, reason }`:
+`robotsAccessAllowed(url)` returns a Promise of `{ accessAllowed, blockReason }`:
 
 1. Build `<scheme>://<host>[:port]/robots.txt` from the URL. The robots.txt URL itself
    is always allowed (RFC 9309).
@@ -103,7 +103,7 @@ the guard never sees them and cannot call itself.
      limit), and check the URL against the `*` group.
    - **4xx other than 429**: the file is "unavailable": everything is allowed.
    - **5xx, 429, network error or timeout**: the file is "unreachable": everything is
-     disallowed, with reason `robots.txt unreachable`. RFC 9309 names 5xx and network
+     disallowed, with block reason `robots.txt unreachable`. RFC 9309 names 5xx and network
      errors. It does not mention 429 ("Too Many Requests"); treating it as unreachable
      is our choice, because it tells us the server wants fewer requests, not that there
      are no rules. Google's crawler does the same.
@@ -114,7 +114,7 @@ the guard never sees them and cannot call itself.
    problem does not block a site for a day. The RFC's 30-day fallback for a long
    unreachable file does not apply to a cache that lives this short.
 
-The parser, `parseRobotsTxt(text)` and `isAllowed(rules, url)`, follows RFC 9309:
+The parser, `parseRobotsTxt(robotsTxt)` and `isAllowed(robotsRules, url)`, follows RFC 9309:
 
 - Lines are `key: value`; keys are case-insensitive; `#` starts a comment; unknown keys
   (`Sitemap`, `Crawl-delay`, ...) are ignored.
@@ -141,7 +141,7 @@ The parser, `parseRobotsTxt(text)` and `isAllowed(rules, url)`, follows RFC 9309
   - a capture armed (a followed link or a clicked button): the capture stage of the
     capture's row, with the same status; the capture's timeout is cleared and the
     capture ends (`failCapture`, `captureSession = null`).
-  For an unreachable robots.txt the reason is `robots.txt unreachable` instead.
+  For an unreachable robots.txt the block reason is `robots.txt unreachable` instead.
   `ACCESS_ERROR: blocked by robots.txt` is the status the progress table plan
   (`docs/visualize_progress_plan.md`, section 3) already used as its example.
 - **The job** ends: the content script never runs on a cancelled page, so no further
@@ -172,25 +172,29 @@ The parser, `parseRobotsTxt(text)` and `isAllowed(rules, url)`, follows RFC 9309
 
 ## 8. Sketch of new functions
 
+Names follow the maintainer's preference from the PR #16 review: descriptive names of
+two or more words for variables, parameters and object properties, and one-word names
+only for very basic local ones such as loop variables.
+
 `src/robots.js`:
 ```js
 const ROBOTS_FETCH_TIMEOUT_MS = 10000;
 const ROBOTS_CACHE_MS = 24 * 60 * 60 * 1000;
 const ROBOTS_UNREACHABLE_CACHE_MS = 10 * 60 * 1000;
-const ROBOTS_MAX_BYTES = 500 * 1024;
+const ROBOTS_PARSE_LIMIT = 500 * 1024;
 const BLOCKED_BY_ROBOTS = "blocked by robots.txt";
 const ROBOTS_UNREACHABLE = "robots.txt unreachable";
 
-function parseRobotsTxt(text) {}          // -> rules of the "*" group(s): [{ allow, pattern }]
-function isAllowed(rules, url) {}         // longest match, Allow wins a tie
-async function robotsAccessAllowed(url) {} // -> { allowed, reason }, fetches and caches
+function parseRobotsTxt(robotsTxt) {}         // -> rules of the "*" group(s): [{ allowsAccess, pathPattern }]
+function isAllowed(robotsRules, url) {}       // longest match, Allow wins a tie
+async function robotsAccessAllowed(url) {}    // -> { accessAllowed, blockReason }, fetches and caches
 ```
 
 `src/background.functions.js`:
 ```js
 // onBeforeRequest handler: only main_frame requests in the job's tab
-async function checkRobotsBeforeRequest(details) {} // -> {} or { cancel: true }
-function recordRobotsBlock(url, reason) {}          // page or capture stage, section 5
+async function checkRobotsBeforeRequest(requestDetails) {} // -> {} or { cancel: true }
+function recordRobotsBlock(blockedUrl, blockReason) {}     // page or capture stage, section 5
 ```
 
 ## 9. Suggested breakup into reviewable steps

@@ -24,16 +24,26 @@ robots.txt step 5 PR (#18), so steps 2+ start after those are merged.
 1. The user clicks an address in the progress table. It opens in a new tab, as now.
 2. The user downloads the PDF in that tab, or in a tab opened from it (many publishers
    open "View PDF" in a new tab).
-3. The row the address was in shows, in its *pdf download* cells,
+3. When the PDF is shown in the tab (in Firefox's PDF viewer) before it is saved, the
+   row the address was in shows, decided by the maintainer on 2026-09-28:
+   - in its *pdf capture* cells `SUCCESS: viewed by hand` with the PDF's address: the
+     PDF was reached;
+   - in its *pdf download* cells `PENDING: viewed, not downloaded yet`, until the PDF
+     is saved.
+4. When the PDF is saved, the row shows in its *pdf download* cells
    `SUCCESS: downloaded by hand` with the file name, and the log shows
    `📥 PDF downloaded by hand for <DOI>: <file name>`. A download the user cancels is
    shown as `ACCESS_ERROR: Download interrupted (<reason>)`, as for the extension's
    own downloads.
 
+The capture cells of the row may already hold something, such as the robots.txt block
+of the example above; a viewed PDF replaces it in the table, and the log keeps the
+earlier entry.
+
 The file keeps the name the website gives it: Firefox does not let extensions choose the
 name of a download they did not start. The status text makes the difference with the
-extension's own downloads visible; `SUCCESS: …` is colored green like `SUCCESS`, since
-the colors go by the start of the status.
+extension's own downloads visible; `SUCCESS: …` is colored green like `SUCCESS`, and
+`PENDING: …` light blue like `PENDING`, since the colors go by the start of the status.
 
 ## 2. Is it feasible? Parts to confirm first
 
@@ -54,9 +64,9 @@ code is built on them:
    (a link with `target="_blank"` or `window.open`)?
 3. **PDFs shown in Firefox's own viewer.** When Firefox displays a PDF instead of
    downloading it (the default for PDFs), nothing is downloaded until the user clicks
-   the viewer's download button. To confirm: does that download carry the PDF's URL,
-   so step 1 matches it? If it carries a `blob:` address instead, match by `referrer`
-   or record the PDF response itself as "opened" (see section 7).
+   the viewer's download button. The PDF response itself is recorded as viewed
+   (section 1). To confirm: does the later download carry the PDF's URL, so point 1
+   matches it? If it carries a `blob:` address instead, match by `referrer`.
 4. **The click in the status tab.** The status tab has to open the tab itself
    (`browser.tabs.create`) to know its id; a plain link does not report the new tab.
    To confirm: middle-clicks and Ctrl-clicks, which users use to open links in a new
@@ -89,7 +99,11 @@ step 2.
 - In the existing `onHeadersReceived` listener: for a response in a watched tab whose
   content type is `application/pdf` (`retrievingPdfFile`), add its URL to that tab's
   `pdfUrls`. Only `main_frame` and `sub_frame` responses, as a PDF viewer page may show
-  the PDF in a frame.
+  the PDF in a frame. Unless the response is a download (`retrievingAttachment`),
+  Firefox shows it, so record it as viewed: `recordPdfCapture(doi, pageCounter,
+  "SUCCESS: viewed by hand", pdfUrl)` and `recordPdfDownload(doi, pageCounter,
+  "PENDING: viewed, not downloaded yet", null)`, unless the row's download cells
+  already show a download by hand.
 - In `processDownloadChange`, which already sees every download ending: when no capture
   is armed, or the download is not the capture's, look for a watched tab whose
   `pdfUrls` contain the download's `url`. If one does, record the download with
@@ -145,15 +159,12 @@ async function openAssistedTab(clickEvent) {}
 async function watchAssistedTab(tabId, doi, pageCounter) {}      // store in assistedTabs
 async function watchTabOpenedFromAssistedTab(createdTab) {}      // tabs.onCreated
 async function forgetAssistedTab(closedTabId) {}                 // tabs.onRemoved
-async function rememberAssistedPdfResponse(responseDetails) {}   // onHeadersReceived
+async function rememberAssistedPdfResponse(responseDetails) {}   // onHeadersReceived; records "viewed"
 async function recordAssistedDownload(downloadItem, downloadState) {} // -> true if recorded
 ```
 
 ## 7. Open questions
 
-- **A PDF only viewed.** If the user reads the PDF in Firefox's viewer without saving
-  it, should the row show that, for example as `SUCCESS: opened by hand` with the
-  PDF's address? It shows the PDF is reachable, but no file was saved.
 - **Renaming.** Should the extension offer to save a copy under the DOI name, with
   `browser.downloads.download` of the same URL? That is a second request by the
   extension, to a site whose robots.txt may disallow robots, so it goes against the

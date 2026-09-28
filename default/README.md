@@ -25,7 +25,7 @@ After these steps, the extension can be used for accessing paper PDFs via their 
 3. Fill in a DOI under `DOI` and click the `Process DOI` button. Here is an example DOI from the open access journal [JAIR](https://jair.org): 10.1613/jair.49
 4. There is an option to save a list of successful downloads of a session by clicking the `Save log` button in the extension, left of the `Process DOI` button. The list will be saved in the file `my_table.csv` in the user's Downloads directory.
 
-The extension will open the main web page associated with DOI, look for a button labeled PDF or Download on the page and try to download the PDF linked from the page. If successful, the PDF will be stored in the `Downloads` directory of the browser user with the DOI as name (slashes replaced by underscores). However, if the browser has already downloaded the PDF, this version will be used with whatever name it has. When downloading fails, an error message will be displayed. 
+The extension will open the main web page associated with DOI, look for a button labeled PDF or Download on the page and try to download the PDF linked from the page. If successful, the PDF will be stored in the `Downloads` directory of the browser user with the DOI as name (slashes replaced by underscores). When downloading fails, an error message will be displayed. 
 
 ### Status table
 
@@ -76,7 +76,7 @@ The extension was compared to [Zotero](https://www.zotero.org/) (version 8.0.4) 
 
 ## Running the tests
 
-The extension's unit tests use [Jest](https://jestjs.io) and require [Node.js](https://nodejs.org). Run them from this directory:
+The extension's unit tests use [Jest](https://jestjs.io) and require [Node.js](https://nodejs.org). Run them from this directory (default):
 
 ```bash
 npm install   # first time only
@@ -100,10 +100,10 @@ The progress table is updated along the way:
 | Source                       |     | Target                            | Task                          |
 |------------------------------|-----|-----------------------------------|-------------------------------|
 | background: startJob         | ->> | status tab                        | Open status tab, seed row     |
-| content-script: maybeRunJob  | ->> | background: recordContentProgress | Record page loaded            |
-| content-script: performAction| ->> | background: recordContentProgress | Record link found/not found   |
-| background: onHeadersReceived, armCaptureBase | ->> | background: recordCapture | Record capture result |
-| background: downloads.onChanged | ->> | background: recordDownload     | Record saved file             |
+| content-script: maybeRunJob  | ->> | background: recordContentProgress | Record "Page loaded"            |
+| content-script: performAction| ->> | background: recordContentProgress | Record "Link found/not found"   |
+| background: onHeadersReceived, armCaptureBase | ->> | background: recordCapture | Record "Captured result" |
+| background: downloads.onChanged | ->> | background: recordDownload     | Record "Saved file"             |
 | background: record functions | ->> | status tab                        | Send updated table            |
 
 ## Links

@@ -192,6 +192,9 @@ ai_usage:
         functions from other files, and approved by the maintainer. Tested by
         the agent with `npm test` (148/148 passing) and manually in Firefox
         by the maintainer; the guards were only tested with `npm test`.
+        Revised by the agent on 2026-09-28 to address the maintainer's review
+        of PR #11 (README wording, a leftover sentence about already
+        downloaded PDFs removed, the new-entries-button class name).
       tools_used: [Claude Code]
       notes: pending maintainer review before merge.
 
@@ -210,4 +213,4 @@ declaration:
     link-search recording (plan step 5). 2026-09-27 update, covering the
     PR #10 review revisions and the status tab polish and documentation
     (plan step 6). 2026-09-28 update, covering the PENDING placeholder
-    status and the module.exports guards.
+    status, the module.exports guards and the PR #11 review revisions.

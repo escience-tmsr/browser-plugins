@@ -230,7 +230,9 @@ ai_usage:
         was chosen by the maintainer. Tested by the agent with `npm test`
         (194/194 passing, full coverage of robots.js, fetch mocked), and by
         checking that deliberately broken rules make the tests fail, which
-        led to one test being strengthened.
+        led to one test being strengthened. Revised by the agent on
+        2026-09-28 to address the maintainer's review of PR #16 (descriptive
+        variable names instead of one-word ones in robots.js and its tests).
       tools_used: [Claude Code]
       notes: pending maintainer review before merge.
 

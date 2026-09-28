@@ -232,7 +232,8 @@ ai_usage:
         checking that deliberately broken rules make the tests fail, which
         led to one test being strengthened. Revised by the agent on
         2026-09-28 to address the maintainer's review of PR #16 (descriptive
-        variable names instead of one-word ones in robots.js and its tests).
+        variable and object property names instead of one-word ones in
+        robots.js and its tests).
       tools_used: [Claude Code]
       notes: pending maintainer review before merge.
 

@@ -51,9 +51,9 @@ function normalizePattern(patternText) {
 }
 
 // The Allow and Disallow rules of all groups for the "*" user agent, combined, as
-// [{ allow, pattern }] with normalized patterns. Groups for other user agents, rules
-// before the first User-agent line and unknown lines (Sitemap, Crawl-delay, ...) are
-// skipped. An empty Disallow value is not a rule.
+// [{ allowsAccess, pathPattern }] with normalized patterns. Groups for other user
+// agents, rules before the first User-agent line and unknown lines (Sitemap,
+// Crawl-delay, ...) are skipped. An empty Disallow value is not a rule.
 function parseRobotsTxt(robotsTxt) {
   const starGroupRules = [];
   let inGroup = false;
@@ -76,7 +76,7 @@ function parseRobotsTxt(robotsTxt) {
     } else if ((fieldName === "allow" || fieldName === "disallow") && inGroup) {
       groupHasRules = true;
       if (groupApplies && fieldValue !== "") {
-        starGroupRules.push({ allow: fieldName === "allow", pattern: normalizePattern(fieldValue) });
+        starGroupRules.push({ allowsAccess: fieldName === "allow", pathPattern: normalizePattern(fieldValue) });
       }
     }
   }
@@ -100,14 +100,14 @@ function isAllowed(robotsRules, url) {
   const pathToMatch = normalizePath(pathname + search, false);
   let decidingRule = null;
   for (const rule of robotsRules) {
-    if (!patternToRegExp(rule.pattern).test(pathToMatch)) continue;
+    if (!patternToRegExp(rule.pathPattern).test(pathToMatch)) continue;
     if (decidingRule === null
-        || rule.pattern.length > decidingRule.pattern.length
-        || (rule.pattern.length === decidingRule.pattern.length && rule.allow)) {
+        || rule.pathPattern.length > decidingRule.pathPattern.length
+        || (rule.pathPattern.length === decidingRule.pathPattern.length && rule.allowsAccess)) {
       decidingRule = rule;
     }
   }
-  return decidingRule === null ? true : decidingRule.allow;
+  return decidingRule === null ? true : decidingRule.allowsAccess;
 }
 
 const ROBOTS_FETCH_TIMEOUT_MS = 10000;
@@ -121,9 +121,9 @@ const HTTP_TOO_MANY_REQUESTS = 429;
 const BLOCKED_BY_ROBOTS = "blocked by robots.txt";
 const ROBOTS_UNREACHABLE = "robots.txt unreachable";
 
-// Per origin: { expiresAt, verdict }, verdict being a Promise of { rules } or
-// { unreachable: true }. expiresAt stays null while the fetch is under way, so requests
-// arriving meanwhile share it.
+// Per origin: { expiresAt, robotsVerdict }, robotsVerdict being a Promise of
+// { robotsRules } or { robotsUnreachable: true }. expiresAt stays null while the fetch
+// is under way, so requests arriving meanwhile share it.
 const robotsCache = new Map();
 
 // Cut a long file after its last complete line within the parse limit, so a rule cut in
@@ -145,15 +145,15 @@ async function fetchRobotsVerdict(siteOrigin) {
   try {
     const robotsResponse = await fetch(siteOrigin + ROBOTS_TXT_PATH, { credentials: "omit", signal: abortController.signal });
     if (robotsResponse.ok) {
-      return { rules: parseRobotsTxt(truncateRobotsTxt(await robotsResponse.text())) };
+      return { robotsRules: parseRobotsTxt(truncateRobotsTxt(await robotsResponse.text())) };
     }
     const httpStatus = robotsResponse.status;
     if (httpStatus >= 400 && httpStatus < 500 && httpStatus !== HTTP_TOO_MANY_REQUESTS) {
-      return { rules: [] };
+      return { robotsRules: [] };
     }
-    return { unreachable: true };
+    return { robotsUnreachable: true };
   } catch (_) {
-    return { unreachable: true };
+    return { robotsUnreachable: true };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -162,32 +162,32 @@ async function fetchRobotsVerdict(siteOrigin) {
 function cachedRobotsVerdict(siteOrigin) {
   const cachedEntry = robotsCache.get(siteOrigin);
   if (cachedEntry && (cachedEntry.expiresAt === null || cachedEntry.expiresAt > Date.now())) {
-    return cachedEntry.verdict;
+    return cachedEntry.robotsVerdict;
   }
-  const newEntry = { expiresAt: null, verdict: fetchRobotsVerdict(siteOrigin) };
+  const newEntry = { expiresAt: null, robotsVerdict: fetchRobotsVerdict(siteOrigin) };
   robotsCache.set(siteOrigin, newEntry);
-  newEntry.verdict.then((robotsVerdict) => {
-    newEntry.expiresAt = Date.now() + (robotsVerdict.unreachable ? ROBOTS_UNREACHABLE_CACHE_MS : ROBOTS_CACHE_MS);
+  newEntry.robotsVerdict.then((robotsVerdict) => {
+    newEntry.expiresAt = Date.now() + (robotsVerdict.robotsUnreachable ? ROBOTS_UNREACHABLE_CACHE_MS : ROBOTS_CACHE_MS);
   });
-  return newEntry.verdict;
+  return newEntry.robotsVerdict;
 }
 
-// May the extension visit url? Resolves to { allowed, reason }, reason being
-// BLOCKED_BY_ROBOTS or ROBOTS_UNREACHABLE when it may not, and null when it may.
+// May the extension visit url? Resolves to { accessAllowed, blockReason }, blockReason
+// being BLOCKED_BY_ROBOTS or ROBOTS_UNREACHABLE when it may not, and null when it may.
 // Only http and https URLs have a robots.txt; other URLs are allowed.
 async function robotsAccessAllowed(url) {
   const { protocol, origin: siteOrigin, pathname } = new URL(url);
   if ((protocol !== "http:" && protocol !== "https:") || pathname === ROBOTS_TXT_PATH) {
-    return { allowed: true, reason: null };
+    return { accessAllowed: true, blockReason: null };
   }
   const robotsVerdict = await cachedRobotsVerdict(siteOrigin);
-  if (robotsVerdict.unreachable) {
-    return { allowed: false, reason: ROBOTS_UNREACHABLE };
+  if (robotsVerdict.robotsUnreachable) {
+    return { accessAllowed: false, blockReason: ROBOTS_UNREACHABLE };
   }
-  if (!isAllowed(robotsVerdict.rules, url)) {
-    return { allowed: false, reason: BLOCKED_BY_ROBOTS };
+  if (!isAllowed(robotsVerdict.robotsRules, url)) {
+    return { accessAllowed: false, blockReason: BLOCKED_BY_ROBOTS };
   }
-  return { allowed: true, reason: null };
+  return { accessAllowed: true, blockReason: null };
 }
 
 const exported = {

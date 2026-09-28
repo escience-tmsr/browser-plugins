@@ -30,50 +30,50 @@ const RFC_SIMPLE_EXAMPLE = [
 describe("parseRobotsTxt", () => {
   test("keeps only the rules of the * group, in file order", () => {
     expect(parseRobotsTxt(RFC_SIMPLE_EXAMPLE)).toEqual([
-      { allow: false, pattern: "*.gif$" },
-      { allow: false, pattern: "/example/" },
-      { allow: true, pattern: "/publications/" },
+      { allowsAccess: false, pathPattern: "*.gif$" },
+      { allowsAccess: false, pathPattern: "/example/" },
+      { allowsAccess: true, pathPattern: "/publications/" },
     ]);
   });
 
   test("combines all groups for *", () => {
     const robotsTxt = "User-agent: *\nDisallow: /foo\n\nUser-agent: foobot\nDisallow: /bar\n\nUser-agent: *\nDisallow: /baz\n";
-    expect(parseRobotsTxt(robotsTxt).map((rule) => rule.pattern)).toEqual(["/foo", "/baz"]);
+    expect(parseRobotsTxt(robotsTxt).map((rule) => rule.pathPattern)).toEqual(["/foo", "/baz"]);
   });
 
   test("applies a group that names * among other user agents", () => {
     const robotsTxt = "User-agent: foobot\nUser-agent: *\nDisallow: /private/\n";
-    expect(parseRobotsTxt(robotsTxt)).toEqual([{ allow: false, pattern: "/private/" }]);
+    expect(parseRobotsTxt(robotsTxt)).toEqual([{ allowsAccess: false, pathPattern: "/private/" }]);
   });
 
   test("a User-agent line after rules starts a new group", () => {
     const robotsTxt = "User-agent: *\nDisallow: /foo\nUser-agent: foobot\nDisallow: /bar\n";
-    expect(parseRobotsTxt(robotsTxt).map((rule) => rule.pattern)).toEqual(["/foo"]);
+    expect(parseRobotsTxt(robotsTxt).map((rule) => rule.pathPattern)).toEqual(["/foo"]);
   });
 
   test("ignores rules before the first User-agent line", () => {
     const robotsTxt = "Disallow: /early\nUser-agent: *\nDisallow: /late\n";
-    expect(parseRobotsTxt(robotsTxt).map((rule) => rule.pattern)).toEqual(["/late"]);
+    expect(parseRobotsTxt(robotsTxt).map((rule) => rule.pathPattern)).toEqual(["/late"]);
   });
 
   test("other lines such as Sitemap do not end a group", () => {
     const robotsTxt = "User-agent: *\nSitemap: https://www.example.com/sitemap.xml\nDisallow: /a\nCrawl-delay: 10\nDisallow: /b\n";
-    expect(parseRobotsTxt(robotsTxt).map((rule) => rule.pattern)).toEqual(["/a", "/b"]);
+    expect(parseRobotsTxt(robotsTxt).map((rule) => rule.pathPattern)).toEqual(["/a", "/b"]);
   });
 
   test("reads keys case-insensitively, with or without spaces around the colon", () => {
     const robotsTxt = "USER-AGENT:*\nDISALLOW:/a\n  disallow  :  /b  \n";
-    expect(parseRobotsTxt(robotsTxt).map((rule) => rule.pattern)).toEqual(["/a", "/b"]);
+    expect(parseRobotsTxt(robotsTxt).map((rule) => rule.pathPattern)).toEqual(["/a", "/b"]);
   });
 
   test("skips comments, blank lines and lines without a colon", () => {
     const robotsTxt = "# robots.txt\n\nUser-agent: * # everyone\nDisallow: /a # not /b\nnonsense\n";
-    expect(parseRobotsTxt(robotsTxt).map((rule) => rule.pattern)).toEqual(["/a"]);
+    expect(parseRobotsTxt(robotsTxt).map((rule) => rule.pathPattern)).toEqual(["/a"]);
   });
 
   test("accepts CRLF and CR line ends and a byte order mark", () => {
-    const robotsTxt = "﻿User-agent: *\r\nDisallow: /a\rDisallow: /b";
-    expect(parseRobotsTxt(robotsTxt).map((rule) => rule.pattern)).toEqual(["/a", "/b"]);
+    const robotsTxt = "\uFEFFUser-agent: *\r\nDisallow: /a\rDisallow: /b";
+    expect(parseRobotsTxt(robotsTxt).map((rule) => rule.pathPattern)).toEqual(["/a", "/b"]);
   });
 
   test("an empty Disallow value is not a rule", () => {
@@ -191,9 +191,9 @@ describe("robotsAccessAllowed", () => {
   const DISALLOW_PRIVATE = "User-agent: *\nDisallow: /private/\n";
   const ALLOWED_URL = SITE_URL + "/public/paper.pdf";
   const DISALLOWED_URL = SITE_URL + "/private/paper.pdf";
-  const ALLOWED_STATUS = { allowed: true, reason: null };
-  const BLOCKED_STATUS = { allowed: false, reason: BLOCKED_BY_ROBOTS };
-  const UNREACHABLE_STATUS = { allowed: false, reason: ROBOTS_UNREACHABLE };
+  const ALLOWED_STATUS = { accessAllowed: true, blockReason: null };
+  const BLOCKED_STATUS = { accessAllowed: false, blockReason: BLOCKED_BY_ROBOTS };
+  const UNREACHABLE_STATUS = { accessAllowed: false, blockReason: ROBOTS_UNREACHABLE };
 
   // Loaded again for every test, so every test starts with an empty cache.
   let robotsModule;

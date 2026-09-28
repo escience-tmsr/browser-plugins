@@ -234,25 +234,33 @@ async function checkRobotsBeforeRequest(requestDetails) {
   }
   if (accessStatus.accessAllowed) return {};
   self.sendStatus(`🚫 Not visiting ${requestDetails.url}: ${accessStatus.blockReason}`, isError = true);
-  self.recordRobotsBlock(storedJob.doi, requestDetails.url, accessStatus.blockReason);
+  // originUrl is the page that triggered the request, if a web page did.
+  const requestedByPage = /^https?:/.test(requestDetails.originUrl || "");
+  self.recordRobotsBlock(storedJob.doi, requestDetails.url, accessStatus.blockReason, requestedByPage);
   return { cancel: true };
 }
 
 // Record a request that robots.txt blocked in the progress table, as ACCESS_ERROR with
-// the block reason (see docs/robots_txt_plan.md, section 5). The job cannot go on after
-// it: the content script does not run on a cancelled page. Where the block goes:
+// the block reason (see docs/robots_txt_plan.md, section 5). Where the block goes:
 // - a capture is armed (a followed link or a clicked button led here): its capture
 //   cells, and the capture ends without waiting for its timeout;
-// - the page has not loaded yet (the DOI page or its redirects): that page's pending
-//   row, whose "page did not load" timeout is cancelled;
-// - the page has loaded and went on to another page by itself (a script or a meta
-//   refresh): a new row, as the job's next page.
-function recordRobotsBlock(jobDoi, blockedUrl, blockReason) {
+// - a page went on to the blocked page by itself (a script or a meta refresh): the
+//   capture cells of that page's row. Firefox stays on that page, whose content script
+//   may still report it as loaded, in the page cells, before or after the block;
+// - otherwise (the DOI page, its redirects, or an address typed in the tab): the page
+//   cells of the current row if it is still waiting for its page, whose "page did not
+//   load" timeout is then cancelled; if not, the page cells of a new row.
+function recordRobotsBlock(jobDoi, blockedUrl, blockReason, requestedByPage) {
   const blockStatus = `${self.STATUS_ACCESS_ERROR}: ${blockReason}`;
   if (captureSession) {
     clearTimeout(captureSession.timeoutId);
     self.recordCapture(blockStatus, blockedUrl);
     captureSession = null;
+    return;
+  }
+  if (requestedByPage) {
+    self.recordPdfCapture(jobDoi, jobPageCounter + 1, blockStatus, blockedUrl);
+    self.sendProgressUpdate();
     return;
   }
   if (pageLoadTimeoutId === null) {

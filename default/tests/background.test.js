@@ -415,8 +415,10 @@ describe("checkRobotsBeforeRequest", () => {
   const PAGE_URL = "https://publisher.example.org/article/1";
   const BLOCK_REASON = "blocked by robots.txt";
 
-  function pageRequest(tabId) {
-    return { tabId, url: PAGE_URL, type: "main_frame" };
+  const TRIGGERING_PAGE_URL = "https://linkinghub.example.org/retrieve/1";
+
+  function pageRequest(tabId, originUrl = undefined) {
+    return { tabId, url: PAGE_URL, type: "main_frame", originUrl };
   }
 
   beforeEach(() => {
@@ -442,7 +444,15 @@ describe("checkRobotsBeforeRequest", () => {
     await expect(checkRobotsBeforeRequest(pageRequest(JOB_TAB_ID))).resolves.toEqual({ cancel: true });
     expect(self.sendStatus).toHaveBeenCalledWith(expect.stringContaining(PAGE_URL), true);
     expect(self.sendStatus).toHaveBeenCalledWith(expect.stringContaining(BLOCK_REASON), true);
-    expect(self.recordRobotsBlock).toHaveBeenCalledWith(DOI, PAGE_URL, BLOCK_REASON);
+    expect(self.recordRobotsBlock).toHaveBeenCalledWith(DOI, PAGE_URL, BLOCK_REASON, false);
+  });
+
+  test("tells recordRobotsBlock whether a web page triggered the request", async() => {
+    self.robotsAccessAllowed.mockResolvedValue({ accessAllowed: false, blockReason: BLOCK_REASON });
+    await checkRobotsBeforeRequest(pageRequest(JOB_TAB_ID, TRIGGERING_PAGE_URL));
+    expect(self.recordRobotsBlock).toHaveBeenLastCalledWith(DOI, PAGE_URL, BLOCK_REASON, true);
+    await checkRobotsBeforeRequest(pageRequest(JOB_TAB_ID, "moz-extension://extension-id/background.html"));
+    expect(self.recordRobotsBlock).toHaveBeenLastCalledWith(DOI, PAGE_URL, BLOCK_REASON, false);
   });
 
   test("cancels the request when the check itself fails", async() => {
@@ -474,6 +484,7 @@ describe("recordRobotsBlock", () => {
     global.self = {
       ...STATUS_CONSTANTS,
       recordCapture: jest.fn(),
+      recordPdfCapture: jest.fn(),
       recordPublisherPageAccess: jest.fn(),
       sendProgressUpdate: jest.fn(),
       sendStatus: jest.fn(),
@@ -487,26 +498,47 @@ describe("recordRobotsBlock", () => {
     jest.useRealTimers();
   });
 
+  const LOADED_PAGE_URL = "https://linkinghub.elsevier.com/retrieve/pii/S0000000000000000";
+
   test("records a block before the first page loaded on its pending row", () => {
     seedPageLoadRow(DOI, DOI_URL);
-    recordRobotsBlock(DOI, BLOCKED_URL, BLOCK_REASON);
+    recordRobotsBlock(DOI, BLOCKED_URL, BLOCK_REASON, false);
     expect(self.recordPublisherPageAccess).toHaveBeenLastCalledWith(DOI, 1, BLOCK_STATUS, BLOCKED_URL);
     jest.runAllTimers();  // the "page did not load" timeout must not overwrite the block
     expect(self.recordPublisherPageAccess).toHaveBeenLastCalledWith(DOI, 1, BLOCK_STATUS, BLOCKED_URL);
   });
 
-  test("records a block after a page loaded as the job's next page", () => {
+  test("records a block not triggered by a page after the page loaded as a new row", () => {
     seedPageLoadRow(DOI, DOI_URL);
-    recordContentProgress({ stage: "page", doi: DOI, url: DOI_URL });
-    recordRobotsBlock(DOI, BLOCKED_URL, BLOCK_REASON);
+    recordContentProgress({ stage: "page", doi: DOI, url: LOADED_PAGE_URL });
+    recordRobotsBlock(DOI, BLOCKED_URL, BLOCK_REASON, false);
     expect(self.recordPublisherPageAccess).toHaveBeenLastCalledWith(DOI, 2, BLOCK_STATUS, BLOCKED_URL);
     expect(self.sendProgressUpdate).toHaveBeenCalled();
+  });
+
+  // A page that moves on by itself stays in the tab when that is blocked, and its content
+  // script reports it as loaded before or after the block: neither may overwrite the other.
+  test.each([
+    ["before", () => {
+      recordContentProgress({ stage: "page", doi: DOI, url: LOADED_PAGE_URL });
+      recordRobotsBlock(DOI, BLOCKED_URL, BLOCK_REASON, true);
+    }],
+    ["after", () => {
+      recordRobotsBlock(DOI, BLOCKED_URL, BLOCK_REASON, true);
+      recordContentProgress({ stage: "page", doi: DOI, url: LOADED_PAGE_URL });
+    }],
+  ])("records a block triggered by a page reported %s it, in that page's capture cells", (reportOrder, reportAndBlock) => {
+    seedPageLoadRow(DOI, DOI_URL);
+    reportAndBlock();
+    jest.runAllTimers();
+    expect(self.recordPdfCapture).toHaveBeenCalledWith(DOI, 1, BLOCK_STATUS, BLOCKED_URL);
+    expect(self.recordPublisherPageAccess).toHaveBeenLastCalledWith(DOI, 1, STATUS_SUCCESS, LOADED_PAGE_URL);
   });
 
   test("records a block during a capture in the capture cells and ends the capture", () => {
     const captureTimeout = jest.fn();
     global.captureSession = { doi: DOI, pageCounter: CAPTURED_PAGE_COUNTER, timeoutId: setTimeout(captureTimeout, CAPTURE_TIMEOUT_MS) };
-    recordRobotsBlock(DOI, BLOCKED_URL, BLOCK_REASON);
+    recordRobotsBlock(DOI, BLOCKED_URL, BLOCK_REASON, true);
     expect(self.recordCapture).toHaveBeenCalledWith(BLOCK_STATUS, BLOCKED_URL);
     expect(self.recordPublisherPageAccess).not.toHaveBeenCalled();
     expect(global.captureSession).toBeNull();

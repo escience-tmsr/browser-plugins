@@ -48,11 +48,11 @@ The table is kept by the extension's background script, so closing and reopening
 
 ### robots.txt
 
-Websites state in their [robots.txt](https://www.rfc-editor.org/rfc/rfc9309) file which of their pages robots may visit. Before the extension loads a web page in the tab it opened for a DOI, it checks the website's robots.txt and follows the rules for all robots (`User-agent: *`). When robots.txt disallows the page, the page is not visited and the processing of the DOI ends:
+Websites state in their [robots.txt](https://www.rfc-editor.org/rfc/rfc9309) file which of their pages robots may visit. Before the extension loads a web page in the tab it opened for a DOI, it checks the website's robots.txt and follows the rules for all robots (`User-agent: *`). When robots.txt disallows the page, the page is not visited:
 
-* the tab shows Firefox's message for a blocked page;
 * the log shows `🚫 Not visiting <address>: blocked by robots.txt`;
-* the progress table shows `ACCESS_ERROR: blocked by robots.txt` with the address: in the *pdf capture* cells when a link or button led to the page, and otherwise in the *publisher page* cells. When a page that had already loaded went on to the blocked page by itself, the blocked page gets a row of its own.
+* the progress table shows `ACCESS_ERROR: blocked by robots.txt` with the address. It is shown in the *pdf capture* cells when a link or button led to the page, or when a page went on to it by itself (for example a publisher's page forwarding to another website): the row of that page shows how far the extension got before the block. Otherwise, for example when the DOI's page itself is blocked, it is shown in the *publisher page* cells;
+* when the extension itself opened the page (the DOI's page, or a followed link), the processing of the DOI ends there. When a page went on to the blocked page by itself, Firefox stays on that page, and the extension searches it for a PDF link as usual.
 
 When a website's robots.txt cannot be fetched because of a server error (HTTP status 500-599 or 429), a network error or a timeout of 10 seconds, the extension does not visit the website either, with the reason `robots.txt unreachable`. When the website has no robots.txt (HTTP status 400-499 other than 429), all its pages may be visited. The extension remembers each website's robots.txt for 24 hours, or for 10 minutes after a failed attempt. Only the pages the tab loads are checked, not the images and scripts that pages use, and pages in other tabs are not checked.
 

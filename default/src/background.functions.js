@@ -291,12 +291,14 @@ function saveLog(downloadLogCsv) {
   self.sendStatus("Saved logfile to Downloads directory");
 }
 
-module.exports = { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureAndNavigate, armCaptureBase, armCaptureOnly,
-                   failCapture, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange,
-                   processIncomingPdfData, recordCapture,
-                   recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment,
-                   retrievingPdfFile, sanitizeDOI, saveLog, seedPageLoadRow, sendProgressUpdate, startJob,
-                   storeDetailsInSessionData };
+if (typeof module !== "undefined") {
+  module.exports = { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureAndNavigate, armCaptureBase, armCaptureOnly,
+                     failCapture, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange,
+                     processIncomingPdfData, recordCapture,
+                     recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment,
+                     retrievingPdfFile, sanitizeDOI, saveLog, seedPageLoadRow, sendProgressUpdate, startJob,
+                     storeDetailsInSessionData };
+}
 if (typeof self !== "undefined") {
   self.armCaptureAndNavigate = armCaptureAndNavigate;
   self.armCaptureBase = armCaptureBase;

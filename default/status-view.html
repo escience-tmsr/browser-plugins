@@ -16,12 +16,12 @@
         content: ""; position: absolute; top: 0; left: 0; right: 0; height: 8px; z-index: 2;
         background: linear-gradient(rgba(0, 0, 0, 0.25), transparent); pointer-events: none;
       }
-      .new-entries {
+      .new-entries-button {
         position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); z-index: 2;
         padding: 4px 12px; border: 1px solid #999; border-radius: 12px; background: #fff;
         box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); cursor: pointer; font-size: 12px;
       }
-      .new-entries[hidden] { display: none; }
+      .new-entries-button[hidden] { display: none; }
       h2 { font-size: 15px; margin: 10px 8px 6px; }
       .count { font-weight: normal; color: #555; }
       table { border-collapse: collapse; width: 100%; }
@@ -43,7 +43,7 @@
       <h2>Progress <span class="count" id="progress-count"></span></h2>
       <div class="scroll-box">
         <div class="scroll" id="progress"></div>
-        <button class="new-entries" id="progress-new" hidden></button>
+        <button class="new-entries-button" id="progress-new" hidden></button>
       </div>
     </section>
 
@@ -51,7 +51,7 @@
       <h2>Log <span class="count" id="log-count"></span></h2>
       <div class="scroll-box">
         <div class="scroll" id="log"></div>
-        <button class="new-entries" id="log-new" hidden></button>
+        <button class="new-entries-button" id="log-new" hidden></button>
       </div>
     </section>
 

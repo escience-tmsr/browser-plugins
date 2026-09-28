@@ -33,8 +33,21 @@ robots.txt step 5 PR (#18), so steps 2+ start after those are merged.
    - *page #*: that row's page number followed by `(by hand)`, e.g. `1 (by hand)`. It
      shows where the take-over started, and cannot clash with the numbers of a job
      that is still running, which are plain numbers;
-   - *publisher page*: `SUCCESS: opened by hand` with the address the user clicked;
-   - *pdf link*: empty, as the extension searched nothing.
+   - *publisher page*: when the clicked row's publisher page was accessible (status
+     `SUCCESS`), its publisher page cells are copied, and the manual part starts with
+     the capture: opening the article page by hand is part of reaching the PDF. When
+     it was not accessible (blocked, or it did not load), the manual part starts with
+     the page itself: `SUCCESS: opened by hand` with the address the user clicked;
+   - *pdf link*: empty, as the user found the PDF, which the extension does not
+     observe.
+
+   For the example above, where linkinghub.elsevier.com loaded and ScienceDirect was
+   blocked, the two rows read:
+
+   | page # | publisher page | pdf link | pdf capture | pdf download |
+   |---|---|---|---|---|
+   | 1 | `SUCCESS` linkinghub… | `NOT_FOUND` | `ACCESS_ERROR: blocked by robots.txt` sciencedirect… | |
+   | 1 (by hand) | `SUCCESS` linkinghub… (copied) | | `SUCCESS: viewed by hand` PDF address | `SUCCESS: downloaded by hand` file name |
 4. When the PDF is shown in the tab (in Firefox's PDF viewer) before it is saved, the
    new row shows, decided by the maintainer on 2026-09-28:
    - in its *pdf capture* cells `SUCCESS: viewed by hand` with the PDF's address: the
@@ -118,9 +131,12 @@ step 2.
   manualPageLabel, "SUCCESS: viewed by hand", pdfUrl)` and `recordPdfDownload(doi,
   manualPageLabel, "PENDING: viewed, not downloaded yet", null)`, unless that row's
   download cells already show a download by hand.
-- The first time a watched tab records anything, the manual row is created with
-  `recordPublisherPageAccess(doi, manualPageLabel, "SUCCESS: opened by hand",
-  clickedUrl)`. The progress recorder keys rows by `` `${doi}#${pageCounter}` `` and
+- The first time a watched tab records anything, the manual row is created with its
+  publisher page cells (section 1): a copy of the clicked row's publisher page cells
+  when their status is `SUCCESS`, and otherwise `recordPublisherPageAccess(doi,
+  manualPageLabel, "SUCCESS: opened by hand", clickedUrl)`. The copy needs a way to
+  read a row's cells from the recorder, such as `publisherPageCells(doi,
+  pageCounter)`, returning `{ pageStatus, pageResult }`. The progress recorder keys rows by `` `${doi}#${pageCounter}` `` and
   prints the page number as text, so a label such as `1 (by hand)` works without
   changes to the recorder.
 - In `processDownloadChange`, which already sees every download ending: when no capture

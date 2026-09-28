@@ -6,7 +6,7 @@ This browser extension reads a DOI and tries to download the PDF of the paper as
 
 The browser extension was developed for and tested in the [Firefox](https://www.firefox.com) browser. Before being able to process a DOI, the extension needs to be installed in the browser:
 
-1. Download or clone this repository: `git clone https://github.com/escience-tmsr/doi-downloader.git`
+1. Download or clone this repository: `git clone https://github.com/escience-tmsr/browser-plugins.git`
 2. Open [about:debugging](about:debugging) in the address bar of Firefox
 3. Click on `This Firefox` in the left menu
 4. Click on the button `Load Temporary Add-on`

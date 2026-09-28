@@ -83,6 +83,9 @@ Two details:
   `onBeforeRequest`). This has to be confirmed in Firefox in step 4 before we rely on
   it. The fallback is to inspect 3xx responses in the existing `onHeadersReceived`
   listener and cancel them when their `Location` is disallowed.
+  *Confirmed in the step 4 Firefox tests (2026-09-28):* an HTTP 302 from an allowed
+  address (httpbin.org's `/redirect-to`) to a disallowed one (ScienceDirect) was
+  blocked, so the fallback is not needed.
 
 The extension's own robots.txt requests run in the background page, with tab id -1, so
 the guard never sees them and cannot call itself.
@@ -130,22 +133,35 @@ The parser, `parseRobotsTxt(robotsTxt)` and `isAllowed(robotsRules, url)`, follo
 
 ## 5. What happens when a request is blocked
 
-- **The tab** shows Firefox's own page for a blocked request. (Open question: redirect
-  to a small extension page that explains why instead, see section 11.)
-- **The status log** gets a line like `🚫 robots.txt disallows https://example.org/x.pdf`.
-- **The progress table** records the block on the stage that was going on:
-  - no capture armed yet (the DOI page or the redirects after it): the page stage of
-    row 1, `ACCESS_ERROR: blocked by robots.txt` with the blocked URL as result;
-    `pageLoadTimeoutId` is cleared, otherwise the timeout would later overwrite the row
-    with "page did not load";
-  - a capture armed (a followed link or a clicked button): the capture stage of the
-    capture's row, with the same status; the capture's timeout is cleared and the
-    capture ends (`failCapture`, `captureSession = null`).
+As implemented in steps 4 and 5, after the Firefox tests of 2026-09-28:
+
+- **The tab.** When the extension itself started the request (the DOI page, a followed
+  link), the request is cancelled before anything loads. When a page started it by
+  itself (a script or a meta refresh, such as linkinghub.elsevier.com forwarding to
+  ScienceDirect), Firefox simply stays on that page. (Open question: show a small
+  extension page that explains the block instead, see section 11.)
+- **The status log** gets a line like
+  `🚫 Not visiting https://example.org/x.pdf: blocked by robots.txt`.
+- **The progress table** records `ACCESS_ERROR: blocked by robots.txt` with the blocked
+  URL as result (`recordRobotsBlock`):
+  - a capture armed (a followed link or a clicked button): in the capture stage of the
+    capture's row; the capture's timeout is cleared and the capture ends
+    (`captureSession = null`);
+  - a page started the request (recognised by the request's `originUrl`): in the
+    capture stage of that page's row. The page stays in the tab, and its content
+    script may report it as loaded before or after the block; the page stage is left
+    to that report. (A first version put these blocks in the page stage, where the
+    page's own load report overwrote them.)
+  - otherwise (the DOI page, its redirects, or an address typed in the tab): in the
+    page stage of the current row if it is still waiting for its page, clearing
+    `pageLoadTimeoutId` so the timeout does not overwrite the row with "page did not
+    load"; if not, in the page stage of a new row.
   For an unreachable robots.txt the block reason is `robots.txt unreachable` instead.
   `ACCESS_ERROR: blocked by robots.txt` is the status the progress table plan
   (`docs/visualize_progress_plan.md`, section 3) already used as its example.
-- **The job** ends: the content script never runs on a cancelled page, so no further
-  link is searched.
+- **The job** ends when the extension's own request was blocked: no page loads, so no
+  further link is searched. When a page's request was blocked, the content script
+  goes on with that page as usual.
 
 ## 6. Files to change (existing)
 
@@ -194,7 +210,7 @@ async function robotsAccessAllowed(url) {}    // -> { accessAllowed, blockReason
 ```js
 // onBeforeRequest handler: only main_frame requests in the job's tab
 async function checkRobotsBeforeRequest(requestDetails) {} // -> {} or { cancel: true }
-function recordRobotsBlock(blockedUrl, blockReason) {}     // page or capture stage, section 5
+function recordRobotsBlock(jobDoi, blockedUrl, blockReason, requestedByPage) {}  // section 5
 ```
 
 ## 9. Suggested breakup into reviewable steps
@@ -209,7 +225,8 @@ function recordRobotsBlock(blockedUrl, blockReason) {}     // page or capture st
    disallowed path, a button click to a disallowed URL, and confirming that
    `onBeforeRequest` sees redirect targets (section 3).
 5. Recording blocks in the progress table and the status log (section 5), README and
-   `aidecl.yaml`.
+   `aidecl.yaml`. (Step 4 already writes the status log line, which its Firefox tests
+   needed.)
 
 ## 10. doi.org's own robots.txt
 
@@ -233,3 +250,15 @@ to another host. The manual tests of step 4 should confirm that a job still star
   (decision 2).
 - **Politeness.** `Crawl-delay` and a waiting period between requests to the same site
   (the "be gentle" item in `doi-downloader`'s `CLAUDE.md`) are a separate follow-up.
+- **Bot filters.** Some sites answer requests they take for a bot with an error page.
+  curl got a 403 for MDPI's robots.txt and an HTML page with status 200 for
+  ScienceDirect's (Node and Firefox got the real files). Under RFC 9309 a 403 means "no
+  robots.txt, everything allowed", and an HTML page with status 200 would be parsed as a
+  robots.txt without rules, also allowing everything. Treating a 200 answer that is not
+  `text/plain` as unreachable would be the safer choice.
+- **The job's tab after the job.** The stored `job` is never removed, so the job's tab
+  stays watched after the job ends: its pages are checked against robots.txt, blocks
+  are recorded under the old DOI, and the content script (as before these steps)
+  searches its pages for PDF links. Marking a job as finished at each of its ends
+  (PDF saved, no link found, capture failed, page did not load, blocked) would stop
+  both. A follow-up outside these steps.

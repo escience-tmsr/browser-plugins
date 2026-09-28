@@ -41,6 +41,13 @@ robots.txt step 5 PR (#18), so steps 2+ start after those are merged.
    - *pdf link*: empty, as the user found the PDF, which the extension does not
      observe.
 
+   Long addresses, such as ScienceDirect's signed PDF address of about 2,000
+   characters, are shown shortened: without their query string, followed by `?…` when
+   one was cut off. The link keeps the complete address, and so does its tooltip, so
+   it can be visited as long as the website accepts it (five minutes for
+   ScienceDirect's PDF address). Decided by the maintainer on 2026-09-28. This applies
+   to every address in the table, including the extension's own capture cells.
+
    For the example above, where linkinghub.elsevier.com loaded and ScienceDirect was
    blocked, the two rows read:
 
@@ -120,10 +127,23 @@ saved with the viewer's download button.
 4. **Passed.** A left click and Ctrl+click arrive as `click`, a middle click (also with
    Ctrl) as `auxclick`, in the status tab's handler.
 
-Not covered: a website that forces a download (`Content-Disposition: attachment`)
-instead of showing the PDF. The extension's own capture matches such downloads by
-URL, so point 1's URL matching is kept for them; to be confirmed in the manual tests
-of step 4.
+**Only ScienceDirect was checked.** Other publishers may behave differently, as the
+maintainer pointed out; the manual tests of step 4 therefore cover several of them
+(section 8). Differences to expect:
+
+- a website that forces a download (`Content-Disposition: attachment`) instead of
+  showing the PDF. The extension's own capture matches such downloads by URL, so point
+  1's URL matching is kept for them;
+- a PDF shown inside the publisher's page (an `<iframe>`, `<embed>` or `<object>`)
+  instead of in a tab of its own, so the PDF response is a `sub_frame` or `object`
+  request;
+- a publisher's own PDF viewer that saves the PDF itself, giving a `blob:https://…`
+  address instead of Firefox's `blob:resource://pdf.js/…`;
+- a PDF opened in the same tab instead of a new one, or in a window instead of a tab;
+- a PDF without a file name in its `Content-Disposition`, so the file name check falls
+  back to the last part of the address.
+
+Where the design has to change for one of these, the results are added here.
 
 ## 3. Design
 
@@ -203,8 +223,9 @@ nothing after a tab is closed. The README says so.
 
 ## 5. Files to change (existing)
 
-- `default/src/progress.js`: `data-doi` and `data-page-counter` on each row; a status
-  suffix for downloads by hand (`SUCCESS: downloaded by hand`).
+- `default/src/progress.js`: `data-doi` and `data-page-counter` on each row; link
+  texts without the query string, with the complete address in `href` and `title`
+  (`linkOrText`); a way to read a row's publisher page cells.
 - `default/src/status-view.js`: the click and auxclick handler.
 - `default/background.js`: `tabs.onCreated` and `tabs.onRemoved` listeners; the
   `onHeadersReceived` listener also runs for watched tabs; a `watch-assisted-tab`
@@ -240,10 +261,6 @@ async function recordAssistedDownload(downloadItem, downloadState) {} // -> true
 
 ## 7. Open questions
 
-- **Expiring PDF addresses.** ScienceDirect's PDF address is a signed link valid for
-  five minutes (`X-Amz-Expires=300`) and about 2,000 characters long. Shown in the
-  manual row's capture cells, it is hard to read and its link stops working soon.
-  Show it anyway, or show it shortened (for example without its query string) as text?
 
 - **Renaming.** Should the extension offer to save a copy under the DOI name, with
   `browser.downloads.download` of the same URL? That is a second request by the
@@ -260,9 +277,12 @@ async function recordAssistedDownload(downloadItem, downloadState) {} // -> true
    download items, the PDF responses with their tab ids, and the `openerTabId` of new
    tabs, tried on ScienceDirect (10.1016/j.artint.2021.103535). Done on 2026-09-28; the
    results are in section 2.
-3. Rows with `data-doi`/`data-page-counter`, and the status tab opening links in a
-   watched tab (`openAssistedTab`, the `watch-assisted-tab` message, storing
+3. Rows with `data-doi`/`data-page-counter`, shortened link texts, and the status tab
+   opening links in a watched tab (`openAssistedTab`, the `watch-assisted-tab` message, storing
    `assistedTabs`, `tabs.onCreated`/`tabs.onRemoved`), with tests. Nothing is recorded
    yet.
-4. Noticing PDF responses and downloads in watched tabs and recording them, with tests
-   and manual Firefox tests; README and `aidecl.yaml`.
+4. Noticing PDF responses and downloads in watched tabs and recording them, with tests;
+   README and `aidecl.yaml`. Manual Firefox tests on ScienceDirect and on publishers
+   that behave differently (section 2): at least one that forces a download, one that
+   shows the PDF inside its page, and one with its own PDF viewer, if such DOIs can be
+   found.

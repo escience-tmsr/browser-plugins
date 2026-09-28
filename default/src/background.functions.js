@@ -234,7 +234,34 @@ async function checkRobotsBeforeRequest(requestDetails) {
   }
   if (accessStatus.accessAllowed) return {};
   self.sendStatus(`🚫 Not visiting ${requestDetails.url}: ${accessStatus.blockReason}`, isError = true);
+  self.recordRobotsBlock(storedJob.doi, requestDetails.url, accessStatus.blockReason);
   return { cancel: true };
+}
+
+// Record a request that robots.txt blocked in the progress table, as ACCESS_ERROR with
+// the block reason (see docs/robots_txt_plan.md, section 5). The job cannot go on after
+// it: the content script does not run on a cancelled page. Where the block goes:
+// - a capture is armed (a followed link or a clicked button led here): its capture
+//   cells, and the capture ends without waiting for its timeout;
+// - the page has not loaded yet (the DOI page or its redirects): that page's pending
+//   row, whose "page did not load" timeout is cancelled;
+// - the page has loaded and went on to another page by itself (a script or a meta
+//   refresh): a new row, as the job's next page.
+function recordRobotsBlock(jobDoi, blockedUrl, blockReason) {
+  const blockStatus = `${self.STATUS_ACCESS_ERROR}: ${blockReason}`;
+  if (captureSession) {
+    clearTimeout(captureSession.timeoutId);
+    self.recordCapture(blockStatus, blockedUrl);
+    captureSession = null;
+    return;
+  }
+  if (pageLoadTimeoutId === null) {
+    jobPageCounter++;
+  }
+  clearTimeout(pageLoadTimeoutId);
+  pageLoadTimeoutId = null;
+  self.recordPublisherPageAccess(jobDoi, jobPageCounter + 1, blockStatus, blockedUrl);
+  self.sendProgressUpdate();
 }
 
 function looksPaywalledUrl(u) {
@@ -316,7 +343,7 @@ if (typeof module !== "undefined") {
   module.exports = { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureAndNavigate, armCaptureBase, armCaptureOnly,
                      checkRobotsBeforeRequest, failCapture, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange,
                      processIncomingPdfData, recordCapture,
-                     recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment,
+                     recordCaptureFailure, recordContentProgress, recordDownload, recordRobotsBlock, removeSlashes, retrievingAttachment,
                      retrievingPdfFile, sanitizeDOI, saveLog, seedPageLoadRow, sendProgressUpdate, startJob,
                      storeDetailsInSessionData };
 }
@@ -334,6 +361,7 @@ if (typeof self !== "undefined") {
   self.recordCaptureFailure = recordCaptureFailure;
   self.recordContentProgress = recordContentProgress;
   self.recordDownload = recordDownload;
+  self.recordRobotsBlock = recordRobotsBlock;
   self.removeSlashes = removeSlashes;
   self.retrievingAttachment = retrievingAttachment;
   self.retrievingPdfFile = retrievingPdfFile;

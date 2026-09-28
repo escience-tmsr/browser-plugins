@@ -184,3 +184,130 @@ describe("isAllowed", () => {
     expect(allowed("User-agent: *\nDisallow: /\n", "/robots.txt")).toBe(true);
   });
 });
+
+describe("robotsAccessAllowed", () => {
+  const ROBOTS_TXT_URL = SITE + "/robots.txt";
+  const OTHER_SITE = "https://publisher.example.org";
+  const DISALLOW_PRIVATE = "User-agent: *\nDisallow: /private/\n";
+  const ALLOWED_URL = SITE + "/public/paper.pdf";
+  const DISALLOWED_URL = SITE + "/private/paper.pdf";
+  const ALLOWED = { allowed: true, reason: null };
+
+  let robots;
+  let blocked;
+  let unreachable;
+
+  function respondWith(status, body = "") {
+    global.fetch.mockResolvedValue({ ok: status >= 200 && status < 300, status, text: async () => body });
+  }
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.resetModules();
+    robots = require("../src/robots");
+    blocked = { allowed: false, reason: robots.BLOCKED_BY_ROBOTS };
+    unreachable = { allowed: false, reason: robots.ROBOTS_UNREACHABLE };
+    global.fetch = jest.fn();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    delete global.fetch;
+  });
+
+  test("fetches the site's robots.txt without cookies and follows its rules", async () => {
+    respondWith(200, DISALLOW_PRIVATE);
+    await expect(robots.robotsAccessAllowed(DISALLOWED_URL)).resolves.toEqual(blocked);
+    await expect(robots.robotsAccessAllowed(ALLOWED_URL)).resolves.toEqual(ALLOWED);
+    expect(global.fetch).toHaveBeenCalledWith(ROBOTS_TXT_URL, expect.objectContaining({ credentials: "omit" }));
+  });
+
+  test("fetches robots.txt from the URL's own scheme, host and port", async () => {
+    respondWith(200, "");
+    await robots.robotsAccessAllowed("http://www.example.com:8080/page?x=1");
+    expect(global.fetch.mock.calls[0][0]).toBe("http://www.example.com:8080/robots.txt");
+  });
+
+  test.each([400, 401, 403, 404, 410])("allows everything when robots.txt answers %i", async (status) => {
+    respondWith(status);
+    await expect(robots.robotsAccessAllowed(DISALLOWED_URL)).resolves.toEqual(ALLOWED);
+  });
+
+  test.each([429, 500, 502, 503])("disallows everything when robots.txt answers %i", async (status) => {
+    respondWith(status);
+    await expect(robots.robotsAccessAllowed(ALLOWED_URL)).resolves.toEqual(unreachable);
+  });
+
+  test("disallows everything when robots.txt cannot be fetched", async () => {
+    global.fetch.mockRejectedValue(new TypeError("NetworkError when attempting to fetch resource."));
+    await expect(robots.robotsAccessAllowed(ALLOWED_URL)).resolves.toEqual(unreachable);
+  });
+
+  test("disallows everything when fetching robots.txt times out", async () => {
+    global.fetch.mockImplementation((url, { signal }) => new Promise((resolve, reject) => {
+      signal.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")));
+    }));
+    const access = robots.robotsAccessAllowed(ALLOWED_URL);
+    jest.advanceTimersByTime(robots.ROBOTS_FETCH_TIMEOUT_MS);
+    await expect(access).resolves.toEqual(unreachable);
+  });
+
+  test("allows other schemes and robots.txt itself without fetching", async () => {
+    await expect(robots.robotsAccessAllowed("about:blank")).resolves.toEqual(ALLOWED);
+    await expect(robots.robotsAccessAllowed(ROBOTS_TXT_URL)).resolves.toEqual(ALLOWED);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test("fetches robots.txt once per site while the cache lasts", async () => {
+    respondWith(200, DISALLOW_PRIVATE);
+    await robots.robotsAccessAllowed(ALLOWED_URL);
+    await robots.robotsAccessAllowed(DISALLOWED_URL);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    await robots.robotsAccessAllowed(OTHER_SITE + "/paper.pdf");
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test("requests arriving during a fetch share it", async () => {
+    respondWith(200, DISALLOW_PRIVATE);
+    const results = await Promise.all([robots.robotsAccessAllowed(ALLOWED_URL), robots.robotsAccessAllowed(DISALLOWED_URL)]);
+    expect(results).toEqual([ALLOWED, blocked]);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  test("fetches robots.txt again once the cache has expired", async () => {
+    respondWith(200, DISALLOW_PRIVATE);
+    await robots.robotsAccessAllowed(ALLOWED_URL);
+    jest.advanceTimersByTime(robots.ROBOTS_CACHE_MS - 1);
+    await robots.robotsAccessAllowed(ALLOWED_URL);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(1);
+    respondWith(200, "");
+    await expect(robots.robotsAccessAllowed(DISALLOWED_URL)).resolves.toEqual(ALLOWED);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test("remembers an unreachable robots.txt for a shorter time", async () => {
+    respondWith(503);
+    await robots.robotsAccessAllowed(ALLOWED_URL);
+    jest.advanceTimersByTime(robots.ROBOTS_UNREACHABLE_CACHE_MS - 1);
+    await expect(robots.robotsAccessAllowed(ALLOWED_URL)).resolves.toEqual(unreachable);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(1);
+    respondWith(200, DISALLOW_PRIVATE);
+    await expect(robots.robotsAccessAllowed(ALLOWED_URL)).resolves.toEqual(ALLOWED);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test("parses only the complete lines within the parse limit", async () => {
+    // The limit falls just after "Disallow: /" in the last line. Read up to the limit,
+    // that line would disallow the whole site, so it has to be left out.
+    const head = "User-agent: *\nDisallow: /early/\n";
+    const lastRule = "Disallow: /private/\n";
+    const lastRuleWithinLimit = "Disallow: /";
+    const filler = "#".repeat(robots.ROBOTS_PARSE_LIMIT - head.length - 1 - lastRuleWithinLimit.length) + "\n";
+    respondWith(200, head + filler + lastRule);
+    await expect(robots.robotsAccessAllowed(SITE + "/early/paper.pdf")).resolves.toEqual(blocked);
+    await expect(robots.robotsAccessAllowed(DISALLOWED_URL)).resolves.toEqual(ALLOWED);
+    await expect(robots.robotsAccessAllowed(ALLOWED_URL)).resolves.toEqual(ALLOWED);
+  });
+});

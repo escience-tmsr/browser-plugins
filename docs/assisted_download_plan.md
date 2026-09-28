@@ -99,6 +99,32 @@ code is built on them:
 If 1 and 3 both fail, the feature cannot be built reliably and the plan stops after
 step 2.
 
+### Results of the check (2026-09-28)
+
+Checked by the maintainer in Firefox with a throw-away logging branch
+(`assisted_download_check`, not merged), on DOI 10.1016/j.artint.2021.103535:
+the ScienceDirect address was clicked in the table, and on the ScienceDirect page the
+PDF button, which opened the PDF in Firefox's viewer in a new tab; the PDF was then
+saved with the viewer's download button.
+
+1. **Passed.** The PDF response was reported with its tab and address:
+   `main_frame`, `application/pdf`, `Content-Disposition: inline;
+   filename=1-s2.0-S0004370221000862-main.pdf`, from `pdf.sciencedirectassets.com`.
+2. **Passed.** Tabs opened from the status tab report it as their `openerTabId`, and
+   the tab ScienceDirect opened for the PDF reports the tab opened from the table.
+3. **Failed as planned, but with a way around it.** Saving from Firefox's viewer
+   starts a download with the address `blob:resource://pdf.js/…`, no `referrer` and no
+   `mime`, so neither the URL nor the referrer matches. The saved file's name equals
+   the `filename` of the PDF response's `Content-Disposition`. See "Noticing the PDF"
+   in section 3 for the resulting design.
+4. **Passed.** A left click and Ctrl+click arrive as `click`, a middle click (also with
+   Ctrl) as `auxclick`, in the status tab's handler.
+
+Not covered: a website that forces a download (`Content-Disposition: attachment`)
+instead of showing the PDF. The extension's own capture matches such downloads by
+URL, so point 1's URL matching is kept for them; to be confirmed in the manual tests
+of step 4.
+
 ## 3. Design
 
 ### Remembering which tab belongs to which row
@@ -114,7 +140,7 @@ step 2.
   `{ type: "watch-assisted-tab", tabId, doi, pageCounter, clickedUrl }` to the
   background, `pageCounter` being the clicked row's page number.
 - The background keeps the watched tabs in `browser.storage.local` under
-  `assistedTabs`, as `{ [tabId]: { doi, manualPageLabel, clickedUrl, pdfUrls: [] } }`,
+  `assistedTabs`, as `{ [tabId]: { doi, manualPageLabel, clickedUrl, pdfResponses: [] } }`,
   with `manualPageLabel` the new row's page number, `` `${pageCounter} (by hand)` ``.
   They survive
   the background page being unloaded, like `job`. A tab opened from a watched tab
@@ -124,9 +150,9 @@ step 2.
 ### Noticing the PDF
 
 - In the existing `onHeadersReceived` listener: for a response in a watched tab whose
-  content type is `application/pdf` (`retrievingPdfFile`), add its URL to that tab's
-  `pdfUrls`. Only `main_frame` and `sub_frame` responses, as a PDF viewer page may show
-  the PDF in a frame. Unless the response is a download (`retrievingAttachment`),
+  content type is `application/pdf` (`retrievingPdfFile`), add its URL and file name
+  to that tab's `pdfResponses`. Only `main_frame` and `sub_frame` responses, as a PDF
+  viewer page may show the PDF in a frame. Unless the response is a download (`retrievingAttachment`),
   Firefox shows it, so record it as viewed in the manual row: `recordPdfCapture(doi,
   manualPageLabel, "SUCCESS: viewed by hand", pdfUrl)` and `recordPdfDownload(doi,
   manualPageLabel, "PENDING: viewed, not downloaded yet", null)`, unless that row's
@@ -139,14 +165,25 @@ step 2.
   pageCounter)`, returning `{ pageStatus, pageResult }`. The progress recorder keys rows by `` `${doi}#${pageCounter}` `` and
   prints the page number as text, so a label such as `1 (by hand)` works without
   changes to the recorder.
+- When a download starts (`downloads.onCreated`), decide which watched tab it
+  belongs to, and remember that per download id:
+  - a download whose `url` is in a watched tab's `pdfResponses`: that tab. This covers
+    websites that force a download;
+  - a download from Firefox's PDF viewer, recognised by its address starting with
+    `blob:resource://pdf.js/` (step 2, point 3): the tab that is active at that
+    moment (`tabs.query({ active: true, lastFocusedWindow: true })`), if it is watched
+    and shows one of its `pdfResponses`. The user clicks the viewer's download button in
+    that tab, so it is the active one. As a check, the file name must equal the
+    `filename` of that PDF response's `Content-Disposition`, or the last part of its
+    address, apart from the " (1)"-style suffix Firefox adds to names that exist
+    already; a mismatch is logged and not recorded.
+  The decision has to be taken when the download starts, as the active tab may have
+  changed by the time it ends. The watched tab's entry keeps each PDF response's
+  address and file name for this: `pdfResponses: [{ pdfUrl, pdfFileName }]`.
 - In `processDownloadChange`, which already sees every download ending: when no capture
-  is armed, or the download is not the capture's, look for a watched tab whose
-  `pdfUrls` contain the download's `url`. If one does, record the download in the
-  manual row with `recordPdfDownload(doi, manualPageLabel, status, fileName)` and log
-  it.
-- A downloaded PDF also counts when no PDF response was seen but the download itself is
-  a PDF (`mime` `application/pdf`) and its `referrer` is a page of a watched tab, if
-  step 2 shows that is needed.
+  is armed, or the download is not the capture's, look up the watched tab remembered
+  for the download's id. If there is one, record the download in the manual row with
+  `recordPdfDownload(doi, manualPageLabel, status, fileName)` and log it.
 
 ### What stays the same
 
@@ -197,10 +234,16 @@ async function watchAssistedTab(tabId, doi, pageCounter, clickedUrl) {} // store
 async function watchTabOpenedFromAssistedTab(createdTab) {}      // tabs.onCreated
 async function forgetAssistedTab(closedTabId) {}                 // tabs.onRemoved
 async function rememberAssistedPdfResponse(responseDetails) {}   // onHeadersReceived; records "viewed"
+async function attributeAssistedDownload(downloadItem) {}        // downloads.onCreated
 async function recordAssistedDownload(downloadItem, downloadState) {} // -> true if recorded
 ```
 
 ## 7. Open questions
+
+- **Expiring PDF addresses.** ScienceDirect's PDF address is a signed link valid for
+  five minutes (`X-Amz-Expires=300`) and about 2,000 characters long. Shown in the
+  manual row's capture cells, it is hard to read and its link stops working soon.
+  Show it anyway, or show it shortened (for example without its query string) as text?
 
 - **Renaming.** Should the extension offer to save a copy under the DOI name, with
   `browser.downloads.download` of the same URL? That is a second request by the
@@ -215,9 +258,8 @@ async function recordAssistedDownload(downloadItem, downloadState) {} // -> true
 1. **This plan doc.** (current step)
 2. **Feasibility check in Firefox** (section 2): a small throw-away branch that logs the
    download items, the PDF responses with their tab ids, and the `openerTabId` of new
-   tabs, tried on ScienceDirect (10.1016/j.artint.2021.103535) and one or two other
-   publishers. The results decide between URL and referrer matching, and are added to
-   this plan.
+   tabs, tried on ScienceDirect (10.1016/j.artint.2021.103535). Done on 2026-09-28; the
+   results are in section 2.
 3. Rows with `data-doi`/`data-page-counter`, and the status tab opening links in a
    watched tab (`openAssistedTab`, the `watch-assisted-tab` message, storing
    `assistedTabs`, `tabs.onCreated`/`tabs.onRemoved`), with tests. Nothing is recorded

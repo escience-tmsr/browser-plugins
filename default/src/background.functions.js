@@ -200,7 +200,10 @@ function startJob(doi) {
   self.openOrFocusStatusTab().catch(err => {
     self.sendStatus(`Could not open status table: ${err && err.message ? err.message : err}`, isError = true);
   });
-  return browser.tabs.create({ url, active: false }).then(tab => {
+  // The tab opens empty and only loads the DOI page once the job, with the tab's id, is
+  // stored: checkRobotsBeforeRequest recognises the job's requests by that id, and would
+  // miss the first one if the tab opened on the DOI page directly.
+  return browser.tabs.create({ url: "about:blank", active: false }).then(tab => {
     const job = {
       url,
       phrase,
@@ -210,10 +213,28 @@ function startJob(doi) {
     };
 
     self.sendStatus(`Opened DOI page in tab ${tab.id}. Looking for "${phrase}" link…`);
-    return browser.storage.local.set({ job });
+    return browser.storage.local.set({ job }).then(() => browser.tabs.update(tab.id, { url }));
   }).catch(err => {
     self.sendStatus(`Could not start job: ${err && err.message ? err.message : err}`, isError = true);
   });
+}
+
+// Blocking onBeforeRequest handler for page requests (main_frame): cancel a request in
+// the job's tab that robots.txt does not allow (see docs/robots_txt_plan.md, section 3).
+// Redirect targets arrive here as requests of their own. Requests in other tabs pass.
+async function checkRobotsBeforeRequest(requestDetails) {
+  const { job: storedJob } = await browser.storage.local.get("job");
+  if (!storedJob || requestDetails.tabId !== storedJob.tabId) return {};
+  let accessStatus;
+  try {
+    accessStatus = await self.robotsAccessAllowed(requestDetails.url);
+  } catch (checkError) {
+    // Without an answer the request is not known to be allowed, so it is cancelled.
+    accessStatus = { accessAllowed: false, blockReason: `robots.txt check failed: ${checkError.message}` };
+  }
+  if (accessStatus.accessAllowed) return {};
+  self.sendStatus(`🚫 Not visiting ${requestDetails.url}: ${accessStatus.blockReason}`, isError = true);
+  return { cancel: true };
 }
 
 function looksPaywalledUrl(u) {
@@ -293,7 +314,7 @@ function saveLog(downloadLogCsv) {
 
 if (typeof module !== "undefined") {
   module.exports = { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureAndNavigate, armCaptureBase, armCaptureOnly,
-                     failCapture, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange,
+                     checkRobotsBeforeRequest, failCapture, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange,
                      processIncomingPdfData, recordCapture,
                      recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment,
                      retrievingPdfFile, sanitizeDOI, saveLog, seedPageLoadRow, sendProgressUpdate, startJob,
@@ -303,6 +324,7 @@ if (typeof self !== "undefined") {
   self.armCaptureAndNavigate = armCaptureAndNavigate;
   self.armCaptureBase = armCaptureBase;
   self.armCaptureOnly = armCaptureOnly;
+  self.checkRobotsBeforeRequest = checkRobotsBeforeRequest;
   self.failCapture = failCapture;
   self.inRetrievePdfSession = inRetrievePdfSession;
   self.looksPaywalledUrl = looksPaywalledUrl;

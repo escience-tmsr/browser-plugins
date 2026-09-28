@@ -19,6 +19,7 @@
     "scripts": ["src/status.js",
                 "src/progress.js",
                 "src/status-view.js",
+                "src/robots.js",
                 "src/background.functions.js",
                 "background.js"],
     "persistent": false

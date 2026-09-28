@@ -34,6 +34,12 @@ function retrievingAttachment(details) {
 }
 
 function processIncomingPdfData(details) {
+  const session = captureSession;
+  // The browser downloads this PDF itself, and processDownloadChange records how that
+  // ends. Its data is not needed here, and Firefox cannot filter a response that becomes
+  // a download (the filter fails with "Invalid request ID").
+  if (session.expectBrowserDownload) return;
+
   const dataFlow = browser.webRequest.filterResponseData(details.requestId);
   const chunks = [];
 
@@ -42,23 +48,57 @@ function processIncomingPdfData(details) {
     chunks.push(e.data);
   };
 
-  const session = captureSession;
   const filename = `${self.removeSlashes(self.sanitizeDOI(session.doi))}.pdf`;
+  const failDownload = (reason) => {
+    self.recordDownload(`${self.STATUS_ACCESS_ERROR}: ${reason}`, filename, session);
+    self.failCapture(reason);
+    if (captureSession === session) captureSession = null;
+  };
   dataFlow.onstop = async () => {
     try {
       dataFlow.disconnect();
-      if (! session.expectBrowserDownload) {
-        const blob = new Blob(chunks, { type: "application/pdf" });
-        const objUrl = URL.createObjectURL(blob);
-        await browser.downloads.download({ url: objUrl, filename, saveAs: false });
-        setTimeout(() => URL.revokeObjectURL(objUrl), 30000);
-      }
+      const blob = new Blob(chunks, { type: "application/pdf" });
+      const objUrl = URL.createObjectURL(blob);
+      await browser.downloads.download({ url: objUrl, filename, saveAs: false });
+      setTimeout(() => URL.revokeObjectURL(objUrl), 30000);
     } catch (e) {
-      const reason = `Saving PDF failed: ${e.message}`;
-      self.recordDownload(`${self.STATUS_ACCESS_ERROR}: ${reason}`, filename, session);
-      self.failCapture(reason);
+      failDownload(`Saving PDF failed: ${e.message}`);
     }
   };
+  // The response broke off before it was complete, e.g. because the page load was stopped.
+  // Only while this capture is still the current one: a newer capture is not ended by it.
+  dataFlow.onerror = () => {
+    if (captureSession !== session) return;
+    failDownload(`PDF transfer stopped: ${dataFlow.error}`);
+  };
+}
+
+function isCaptureDownload(item) {
+  return item.mime.includes("application/pdf") || item.filename.endsWith(".pdf")
+    || item.url === captureSession.lastMainUrl;
+}
+
+// Record the outcome of a browser download of the captured PDF: saved, or interrupted
+// (cancelled by the user, or a network or disk error). Either way the capture ends.
+function processDownloadChange(delta) {
+  const state = delta.state?.current;
+  if (state !== "complete" && state !== "interrupted") return Promise.resolve();
+
+  return browser.downloads.search({ id: delta.id }).then(([item]) => {
+    if (!item || captureSession === null || !isCaptureDownload(item)) return;
+    const basename = item.filename.split(/[\\/]/).pop();
+    if (state === "complete") {
+      self.sendStatus(`✅ Saved PDF to ${item.filename}`);
+      self.recordDownload(self.STATUS_SUCCESS, basename);
+      downloadLog = downloadLog.concat(captureSession.doi, ",", item.filename, "\n");
+    } else {
+      // Firefox sends the reason with the change; the download item may not have it.
+      const reason = `Download interrupted (${delta.error?.current || item.error || "unknown reason"})`;
+      self.recordDownload(`${self.STATUS_ACCESS_ERROR}: ${reason}`, basename);
+      self.failCapture(reason);
+    }
+    captureSession = null;
+  });
 }
 
 
@@ -251,7 +291,8 @@ function saveLog(downloadLogCsv) {
 }
 
 module.exports = { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, armCaptureAndNavigate, armCaptureBase, armCaptureOnly,
-                   failCapture, inRetrievePdfSession, looksPaywalledUrl, processIncomingPdfData, recordCapture,
+                   failCapture, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange,
+                   processIncomingPdfData, recordCapture,
                    recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment,
                    retrievingPdfFile, sanitizeDOI, saveLog, seedPageLoadRow, sendProgressUpdate, startJob,
                    storeDetailsInSessionData };
@@ -262,6 +303,7 @@ if (typeof self !== "undefined") {
   self.failCapture = failCapture;
   self.inRetrievePdfSession = inRetrievePdfSession;
   self.looksPaywalledUrl = looksPaywalledUrl;
+  self.processDownloadChange = processDownloadChange;
   self.processIncomingPdfData = processIncomingPdfData;
   self.recordCapture = recordCapture;
   self.recordCaptureFailure = recordCaptureFailure;

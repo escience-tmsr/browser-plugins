@@ -1,5 +1,6 @@
 const CAPTURE_TIMEOUT_MS = 15000;
 const PAGE_LOAD_TIMEOUT_MS = 30000;
+const PAGE_LOAD_PENDING_REASON = "waiting for the page to load";
 const phrase = ["PDF", "download"]
 const IGNORE_WEBREQUEST_ERRORS = new Set([
   "NS_BINDING_ABORTED",
@@ -247,11 +248,11 @@ function recordCaptureFailure(status, reason, targetUrl) {
 
 // A first page that fails to load (bad DOI, 404, network error) shows a browser error
 // page where no content script runs, so its failure would never be reported. Show a
-// placeholder row right away, and mark it failed unless the content script confirms
-// the page in time (see recordContentProgress).
+// pending placeholder row right away, and mark it failed unless the content script
+// confirms the page in time (see recordContentProgress).
 function seedPageLoadRow(doi, doiUrl) {
   clearTimeout(pageLoadTimeoutId);
-  self.recordPublisherPageAccess(doi, 1, self.STATUS_SKIPPED, doiUrl);
+  self.recordPublisherPageAccess(doi, 1, `${self.STATUS_PENDING}: ${PAGE_LOAD_PENDING_REASON}`, doiUrl);
   self.sendProgressUpdate();
   pageLoadTimeoutId = setTimeout(() => {
     pageLoadTimeoutId = null;
@@ -290,7 +291,7 @@ function saveLog(downloadLogCsv) {
   self.sendStatus("Saved logfile to Downloads directory");
 }
 
-module.exports = { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, armCaptureAndNavigate, armCaptureBase, armCaptureOnly,
+module.exports = { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureAndNavigate, armCaptureBase, armCaptureOnly,
                    failCapture, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange,
                    processIncomingPdfData, recordCapture,
                    recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment,

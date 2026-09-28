@@ -205,3 +205,46 @@ describe("toHtml", () => {
     expect(html).not.toContain("status-skipped");
   });
 });
+
+describe("result links", () => {
+  const SCRIPT_URL = "javascript:alert(1)";
+
+  // The links in the rendered table, as { href, target, rel, text }.
+  function renderedLinks(recorder) {
+    const table = new DOMParser().parseFromString(recorder.toHtml(), "text/html");
+    return [...table.querySelectorAll("a")].map((link) => ({
+      href: link.getAttribute("href"),
+      target: link.getAttribute("target"),
+      rel: link.getAttribute("rel"),
+      text: link.textContent,
+    }));
+  }
+
+  test("links the page, pdf link and capture addresses, opening in a new tab", () => {
+    const recorder = new progress.ProgressRecorder();
+    recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, PAGE_URL);
+    recorder.recordPdfLinkFound(DOI, 1, SUCCESS, PDF_URL);
+    recorder.recordPdfCapture(DOI, 1, `${ACCESS_ERROR}: blocked by robots.txt`, PUBLISHER_URL);
+    const newTabLink = { target: "_blank", rel: "noopener noreferrer" };
+    expect(renderedLinks(recorder)).toEqual([
+      { href: PAGE_URL, text: PAGE_URL, ...newTabLink },
+      { href: PDF_URL, text: PDF_URL, ...newTabLink },
+      { href: PUBLISHER_URL, text: PUBLISHER_URL, ...newTabLink },
+    ]);
+  });
+
+  test("keeps an address with special characters intact in the link", () => {
+    const recorder = new progress.ProgressRecorder();
+    recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, UNSAFE_URL);
+    expect(renderedLinks(recorder)).toEqual([expect.objectContaining({ href: UNSAFE_URL, text: UNSAFE_URL })]);
+  });
+
+  test("does not link a file name, or an address that is not http or https", () => {
+    const recorder = new progress.ProgressRecorder();
+    recorder.recordPdfDownload(DOI, 1, SUCCESS, FILENAME);
+    recorder.recordPdfCapture(DOI, 1, SUCCESS, SCRIPT_URL);
+    expect(renderedLinks(recorder)).toEqual([]);
+    expect(recorder.toHtml()).toContain(FILENAME);
+    expect(recorder.toHtml()).toContain(SCRIPT_URL);
+  });
+});

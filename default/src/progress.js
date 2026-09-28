@@ -51,10 +51,19 @@ function statusCell(status) {
   return `<td${cssAttr}>${status ? escapeHtml(status) : ""}</td>`;
 }
 
+// Web addresses become links that open in a new tab, so the status tab stays in place;
+// noopener keeps the opened page from reaching back into the status tab. Only http and
+// https addresses are linked, so no other kind of address (such as javascript:) can run.
+function linkOrText(resultValue) {
+  const escapedValue = escapeHtml(resultValue);
+  if (!/^https?:\/\//i.test(resultValue)) return escapedValue;
+  return `<a href="${escapedValue}" target="_blank" rel="noopener noreferrer">${escapedValue}</a>`;
+}
+
 function resultCell(value, status) {
   const css = statusClass(status);
   const cssAttr = css ? ` class="${css}"` : "";
-  return `<td${cssAttr}>${value ? escapeHtml(value) : ""}</td>`;
+  return `<td${cssAttr}>${value ? linkOrText(value) : ""}</td>`;
 }
 
 class ProgressRecorder {

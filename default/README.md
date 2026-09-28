@@ -39,12 +39,22 @@ The status tab contains:
   * *pdf capture*: did following the link or clicking the button give a PDF (result: the URL it came from)?
   * *pdf download*: was the PDF saved (result: the file name)? A download that is cancelled or breaks off is shown as `ACCESS_ERROR` with the reason.
 
-  The status is `SUCCESS` (green), `NOT_FOUND` or `ACCESS_ERROR` (red, followed by the reason), `SKIPPED` (gray, for a link that led to another web page instead of a PDF) or `PENDING` (light blue, still waiting). A new row first appears as `PENDING: waiting for the page to load` while the DOI's page is loading; if the page has not loaded after 30 seconds, it is marked `ACCESS_ERROR: page did not load`.
+  The status is `SUCCESS` (green), `NOT_FOUND` or `ACCESS_ERROR` (red, followed by the reason), `SKIPPED` (gray, for a link that led to another web page instead of a PDF) or `PENDING` (light blue, still waiting). A new row first appears as `PENDING: waiting for the page to load` while the DOI's page is loading; if the page has not loaded after 30 seconds, it is marked `ACCESS_ERROR: page did not load`. The web addresses in the table are links, which open in a new tab.
 * **A log** with the status messages the popup shows, one per line, for as long as the status tab is open.
 
 The table and the log each take up half of the status tab and scroll separately. Each keeps its newest entries at the bottom in view; after scrolling up to read older entries, the view stays put until it is scrolled back to the bottom. The headings show the number of table rows and log lines, a shadow under a heading shows that there are entries above the visible part, and a button such as "▼ 3 new lines" shows that entries arrived below it while scrolled up; clicking it jumps back to the bottom.
 
 The table is kept by the extension's background script, so closing and reopening the status tab shows the table again. It is emptied when the extension is reloaded, or when Firefox unloads the idle background script.
+
+### robots.txt
+
+Websites state in their [robots.txt](https://www.rfc-editor.org/rfc/rfc9309) file which of their pages robots may visit. Before the extension loads a web page in the tab it opened for a DOI, it checks the website's robots.txt and follows the rules for all robots (`User-agent: *`). When robots.txt disallows the page, the page is not visited:
+
+* the log shows `🚫 Not visiting <address>: blocked by robots.txt`;
+* the progress table shows `ACCESS_ERROR: blocked by robots.txt` with the address. It is shown in the *pdf capture* cells when a link or button led to the page, or when a page went on to it by itself (for example a publisher's page forwarding to another website): the row of that page shows how far the extension got before the block. Otherwise, for example when the DOI's page itself is blocked, it is shown in the *publisher page* cells;
+* when the extension itself opened the page (the DOI's page, or a followed link), the processing of the DOI ends there. When a page went on to the blocked page by itself, Firefox stays on that page, and the extension searches it for a PDF link as usual.
+
+When a website's robots.txt cannot be fetched because of a server error (HTTP status 500-599 or 429), a network error or a timeout of 10 seconds, the extension does not visit the website either, with the reason `robots.txt unreachable`. When the website has no robots.txt (HTTP status 400-499 other than 429), all its pages may be visited. The extension remembers each website's robots.txt for 24 hours, or for 10 minutes after a failed attempt. Only the pages the tab loads are checked, not the images and scripts that pages use, and pages in other tabs are not checked.
 
 ### Known limitations
 
@@ -52,10 +62,11 @@ The table is kept by the extension's background script, so closing and reopening
 * When a button (not a link) opens the PDF in a new tab, the extension does not capture it; the capture is reported as failed after 15 seconds.
 * When the same DOI is processed twice, the second run overwrites the first run's table cells only where it records something new.
 * Firefox may open a saved PDF in a new tab (setting: Settings, Applications, Portable Document Format), which moves the status tab out of view.
+* After a DOI has been processed, pages opened in its tab are still checked against robots.txt, until the next DOI is processed.
 
 ## Evaluation
 
-The extension was compared to [Zotero](https://www.zotero.org/) (version 8.0.4) and [UnpaywallPDFDownloader](https://github.com/lixuliu/UnpaywallPDFDownloader) with respect to retrieving a PDF provided a DOI for fourteen DOIs representing papers from different publishers (test date 20260323). Zotero found six PDFs (43%) via the "Find Full Text" menu option while the extension was able to retrieve seven PDFs (50%). The only difference between the two methods involved Zotero being identified as a robot by the target website and successively being refused access to the PDF file. The test did not involve logging in to websites so PDFs behind paywalls were inaccessible to both approaches. The combination of five plugins of the doi-downloader outperformed the two approaches with nine successful downloads (64%). UnpaywallPDFDownloader only retrieved four PDFs (29%).
+The extension was compared to [Zotero](https://www.zotero.org/) (version 8.0.4) and [UnpaywallPDFDownloader](https://github.com/lixuliu/UnpaywallPDFDownloader) with respect to retrieving a PDF provided a DOI for fourteen DOIs representing papers from different publishers (test date 20260323). Zotero found six PDFs (43%) via the "Find Full Text" menu option while the extension was able to retrieve seven PDFs (50%). The only difference between the two methods involved Zotero being identified as a robot by the target website and successively being refused access to the PDF file. The test did not involve logging in to websites so PDFs behind paywalls were inaccessible to both approaches. The combination of five plugins of the doi-downloader outperformed the two approaches with nine successful downloads (64%). UnpaywallPDFDownloader only retrieved four PDFs (29%). This test predates the robots.txt check, which stops the extension from retrieving the ScienceDirect PDF (10.1016/j.nlp.2026.100202): the robots.txt files of www.sciencedirect.com and pdf.sciencedirectassets.com disallow all pages for robots.
 
 | DOI                               | Publisher/Journal       | Zotero | This extension | doi-downloader | Unpaywall |
 |-----------------------------------|-------------------------|:------:|:--------------:|:--------------:|:---------:|
@@ -88,6 +99,7 @@ npm test
 | Source                       |     | Target                            | Task              |
 |------------------------------|-----|-----------------------------------|-------------------|
 | popup                        | ->> | background:  startJob             | Download doi page |
+| every page request in the job's tab | ->> | background: checkRobotsBeforeRequest | Check robots.txt |
 | doi page                     | ->> | content-script: maybeRunJob       |                   |
 | maybeRunJob                  | ->> | content-script: performAction     | Find PDF button   |
 | performAction                | ->> | send download_pdf_via_tab_capture |                   |
@@ -104,6 +116,7 @@ The progress table is updated along the way:
 | content-script: performAction| ->> | background: recordContentProgress | Record "Link found/not found"   |
 | background: onHeadersReceived, armCaptureBase | ->> | background: recordCapture | Record "Captured result" |
 | background: downloads.onChanged | ->> | background: recordDownload     | Record "Saved file"             |
+| background: checkRobotsBeforeRequest | ->> | background: recordRobotsBlock | Record "Blocked by robots.txt" |
 | background: record functions | ->> | status tab                        | Send updated table            |
 
 ## Links

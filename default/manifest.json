@@ -21,7 +21,8 @@
                 "src/status-view.js",
                 "src/robots.js",
                 "src/background.functions.js",
-                "background.js"],
+                "background.js",
+                "src/assisted-check.js"],
     "persistent": false
   },
   "content_scripts": [

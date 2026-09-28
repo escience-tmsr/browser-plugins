@@ -7,8 +7,9 @@ disallows robots, so the extension stops there (`docs/robots_txt_plan.md`). Clic
 blocked ScienceDirect address in the table opens the article page, where the user can
 click the PDF button.
 
-This plan lets the extension notice that download and record it in the table, on the
-row the user clicked, so the table shows which DOIs have a PDF however it was obtained.
+This plan lets the extension notice that download and record it in the table, in a
+row of its own next to the extension's own attempt, so the table shows which DOIs have
+a PDF however it was obtained.
 The extension only watches: every request in the tab is the user's own, so robots.txt
 does not apply, and the extension does not search, click or navigate anything there.
 This is option B from the discussion of 2026-09-28; option A, in which the extension
@@ -24,21 +25,31 @@ robots.txt step 5 PR (#18), so steps 2+ start after those are merged.
 1. The user clicks an address in the progress table. It opens in a new tab, as now.
 2. The user downloads the PDF in that tab, or in a tab opened from it (many publishers
    open "View PDF" in a new tab).
-3. When the PDF is shown in the tab (in Firefox's PDF viewer) before it is saved, the
-   row the address was in shows, decided by the maintainer on 2026-09-28:
+3. As soon as a PDF shows up in the watched tab, the manual take-over gets a new row,
+   decided by the maintainer on 2026-09-28, so the extension's own attempt in the row
+   the address came from (such as the robots.txt block of the example above) stays as
+   it is:
+   - *DOI*: the DOI of the row the address came from;
+   - *page #*: that row's page number followed by `(by hand)`, e.g. `1 (by hand)`. It
+     shows where the take-over started, and cannot clash with the numbers of a job
+     that is still running, which are plain numbers;
+   - *publisher page*: `SUCCESS: opened by hand` with the address the user clicked;
+   - *pdf link*: empty, as the extension searched nothing.
+4. When the PDF is shown in the tab (in Firefox's PDF viewer) before it is saved, the
+   new row shows, decided by the maintainer on 2026-09-28:
    - in its *pdf capture* cells `SUCCESS: viewed by hand` with the PDF's address: the
      PDF was reached;
    - in its *pdf download* cells `PENDING: viewed, not downloaded yet`, until the PDF
      is saved.
-4. When the PDF is saved, the row shows in its *pdf download* cells
+5. When the PDF is saved, the new row shows in its *pdf download* cells
    `SUCCESS: downloaded by hand` with the file name, and the log shows
    `📥 PDF downloaded by hand for <DOI>: <file name>`. A download the user cancels is
    shown as `ACCESS_ERROR: Download interrupted (<reason>)`, as for the extension's
    own downloads.
 
-The capture cells of the row may already hold something, such as the robots.txt block
-of the example above; a viewed PDF replaces it in the table, and the log keeps the
-earlier entry.
+Clicking an address in the same row again continues in the same `(by hand)` row. A
+click that leads to no PDF adds no row. The new row is added at the bottom of the table,
+like every new row; its page number names the row it belongs to.
 
 The file keeps the name the website gives it: Firefox does not let extensions choose the
 name of a download they did not start. The status text makes the difference with the
@@ -86,10 +97,13 @@ step 2.
   each link, because the table is replaced on every update. For a click on an
   `http(s)` link it prevents the default, opens the address with
   `browser.tabs.create({ url, active: true })` (`active: false` for a middle click, as
-  the browser would), and sends `{ type: "watch-assisted-tab", tabId, doi, pageCounter }`
-  to the background.
+  the browser would), and sends
+  `{ type: "watch-assisted-tab", tabId, doi, pageCounter, clickedUrl }` to the
+  background, `pageCounter` being the clicked row's page number.
 - The background keeps the watched tabs in `browser.storage.local` under
-  `assistedTabs`, as `{ [tabId]: { doi, pageCounter, pdfUrls: [] } }`, so they survive
+  `assistedTabs`, as `{ [tabId]: { doi, manualPageLabel, clickedUrl, pdfUrls: [] } }`,
+  with `manualPageLabel` the new row's page number, `` `${pageCounter} (by hand)` ``.
+  They survive
   the background page being unloaded, like `job`. A tab opened from a watched tab
   (`tabs.onCreated` with a watched `openerTabId`) is watched for the same row.
   `tabs.onRemoved` removes a closed tab.
@@ -100,14 +114,20 @@ step 2.
   content type is `application/pdf` (`retrievingPdfFile`), add its URL to that tab's
   `pdfUrls`. Only `main_frame` and `sub_frame` responses, as a PDF viewer page may show
   the PDF in a frame. Unless the response is a download (`retrievingAttachment`),
-  Firefox shows it, so record it as viewed: `recordPdfCapture(doi, pageCounter,
-  "SUCCESS: viewed by hand", pdfUrl)` and `recordPdfDownload(doi, pageCounter,
-  "PENDING: viewed, not downloaded yet", null)`, unless the row's download cells
-  already show a download by hand.
+  Firefox shows it, so record it as viewed in the manual row: `recordPdfCapture(doi,
+  manualPageLabel, "SUCCESS: viewed by hand", pdfUrl)` and `recordPdfDownload(doi,
+  manualPageLabel, "PENDING: viewed, not downloaded yet", null)`, unless that row's
+  download cells already show a download by hand.
+- The first time a watched tab records anything, the manual row is created with
+  `recordPublisherPageAccess(doi, manualPageLabel, "SUCCESS: opened by hand",
+  clickedUrl)`. The progress recorder keys rows by `` `${doi}#${pageCounter}` `` and
+  prints the page number as text, so a label such as `1 (by hand)` works without
+  changes to the recorder.
 - In `processDownloadChange`, which already sees every download ending: when no capture
   is armed, or the download is not the capture's, look for a watched tab whose
-  `pdfUrls` contain the download's `url`. If one does, record the download with
-  `recordPdfDownload(doi, pageCounter, status, fileName)` and log it.
+  `pdfUrls` contain the download's `url`. If one does, record the download in the
+  manual row with `recordPdfDownload(doi, manualPageLabel, status, fileName)` and log
+  it.
 - A downloaded PDF also counts when no PDF response was seen but the download itself is
   a PDF (`mime` `application/pdf`) and its `referrer` is a page of a watched tab, if
   step 2 shows that is needed.
@@ -118,8 +138,9 @@ step 2.
   job's tab, and requests in other tabs pass the check unchecked.
 - The content script does nothing in watched tabs: `maybeRunJob` only works in the
   job's tab.
+- The row the address came from is not changed.
 - A watched tab stays watched until it is closed. A later download in it replaces the
-  row's download cells; that is the user's own choice of file.
+  manual row's download cells; that is the user's own choice of file.
 
 ## 4. Privacy
 
@@ -156,7 +177,7 @@ async function openAssistedTab(clickEvent) {}
 
 `src/background.functions.js`:
 ```js
-async function watchAssistedTab(tabId, doi, pageCounter) {}      // store in assistedTabs
+async function watchAssistedTab(tabId, doi, pageCounter, clickedUrl) {} // store in assistedTabs
 async function watchTabOpenedFromAssistedTab(createdTab) {}      // tabs.onCreated
 async function forgetAssistedTab(closedTabId) {}                 // tabs.onRemoved
 async function rememberAssistedPdfResponse(responseDetails) {}   // onHeadersReceived; records "viewed"

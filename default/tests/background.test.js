@@ -1,6 +1,6 @@
-const { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, armCaptureBase, failCapture, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange, processIncomingPdfData, recordCapture, recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment, retrievingPdfFile, sanitizeDOI, seedPageLoadRow, sendProgressUpdate, startJob, storeDetailsInSessionData }  = require("../src/background.functions");
-const { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED } = require("../src/progress");
-const STATUS_CONSTANTS = { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED };
+const { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureBase, failCapture, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange, processIncomingPdfData, recordCapture, recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment, retrievingPdfFile, sanitizeDOI, seedPageLoadRow, sendProgressUpdate, startJob, storeDetailsInSessionData }  = require("../src/background.functions");
+const { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED, STATUS_PENDING } = require("../src/progress");
+const STATUS_CONSTANTS = { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED, STATUS_PENDING };
 
 // DOI used throughout these tests, and the doi.org address startJob opens for it.
 const DOI = "10.1234/doi";
@@ -663,9 +663,10 @@ describe("page-load and link-search recording", () => {
     jest.useRealTimers();
   });
 
-  test("seedPageLoadRow shows page 1 as skipped until it is confirmed", () => {
+  test("seedPageLoadRow shows page 1 as pending until it is confirmed", () => {
     seedPageLoadRow(DOI, DOI_URL);
-    expect(self.recordPublisherPageAccess).toHaveBeenCalledWith(DOI, 1, STATUS_SKIPPED, DOI_URL);
+    expect(self.recordPublisherPageAccess).toHaveBeenCalledWith(
+      DOI, 1, `${STATUS_PENDING}: ${PAGE_LOAD_PENDING_REASON}`, DOI_URL);
     expect(self.sendProgressUpdate).toHaveBeenCalledTimes(1);
   });
 

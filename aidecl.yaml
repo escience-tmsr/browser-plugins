@@ -91,8 +91,8 @@ ai_usage:
       robots.txt parser and its fetching and caching (default/src/robots.js,
       default/tests/robots.test.js), and the robots.txt request check
       (default/background.js, default/manifest.json,
-      default/src/background.functions.js, default/tests/background.test.js);
-      not the whole repo.
+      default/src/background.functions.js, default/tests/background.test.js,
+      default/tests/manifest.test.js); not the whole repo.
 
   components:
     - name: progress recorder/renderer (default/src/progress.js)
@@ -252,7 +252,12 @@ ai_usage:
         docs/robots_txt_plan.md. Tested by the agent with `npm test`
         (201/201 passing, tests added to default/tests/background.test.js),
         and by checking that deliberately broken rules make the tests fail.
-        Manual Firefox tests by the maintainer pending.
+        The maintainer's first Firefox test showed that robots.js did not
+        load: its top-level `exported` clashed with the one in progress.js in
+        the shared scope of the background scripts. Fixed by the agent on
+        2026-09-28, with a new test (default/tests/manifest.test.js) that
+        loads the manifest's scripts together as Firefox does (203/203
+        passing).
       tools_used: [Claude Code]
       notes: pending maintainer review before merge.
 

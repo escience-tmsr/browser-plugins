@@ -190,7 +190,9 @@ async function robotsAccessAllowed(url) {
   return { accessAllowed: true, blockReason: null };
 }
 
-const exported = {
+// Not named "exported" like in progress.js: the background scripts share one global
+// scope, where a second top-level const of the same name is a SyntaxError.
+const robotsExports = {
   ROBOTS_FETCH_TIMEOUT_MS,
   ROBOTS_CACHE_MS,
   ROBOTS_UNREACHABLE_CACHE_MS,
@@ -204,9 +206,9 @@ const exported = {
 
 /* istanbul ignore next */
 if (typeof module !== "undefined") {
-  module.exports = exported;
+  module.exports = robotsExports;
 }
 /* istanbul ignore next */
 if (typeof self !== "undefined") {
-  Object.assign(self, exported);
+  Object.assign(self, robotsExports);
 }

@@ -42,31 +42,45 @@ function processIncomingPdfData(details) {
   };
 
   const session = captureSession;
+  const filename = `${self.removeSlashes(self.sanitizeDOI(session.doi))}.pdf`;
   dataFlow.onstop = async () => {
     try {
       dataFlow.disconnect();
       if (! session.expectBrowserDownload) {
         const blob = new Blob(chunks, { type: "application/pdf" });
         const objUrl = URL.createObjectURL(blob);
-        const filename = `${self.removeSlashes(self.sanitizeDOI(session.doi))}.pdf`;
         await browser.downloads.download({ url: objUrl, filename, saveAs: false });
         setTimeout(() => URL.revokeObjectURL(objUrl), 30000);
       }
     } catch (e) {
-      self.failCapture(`Saving PDF failed: ${e.message}`);
+      const reason = `Saving PDF failed: ${e.message}`;
+      self.recordDownload(`${self.STATUS_ACCESS_ERROR}: ${reason}`, filename, session);
+      self.failCapture(reason);
     }
   };
 }
 
 
 function armCaptureBase(doi, tabId, expectedUrl) {
+  if (captureSession) {
+    // The previous capture led to an HTML page instead of a PDF, and a link on that
+    // page is being followed now: that page is the next page of the job.
+    clearTimeout(captureSession.timeoutId);
+    if (! captureSession.sawPdf) {
+      self.recordCapture(`${self.STATUS_SKIPPED}: HTML page, searched as page ${jobPageCounter + 1}`,
+                         captureSession.lastMainUrl || captureSession.expectedUrl, captureSession);
+    }
+  }
+  // The k-th capture of a job always follows a link found on page k (page 1 being the
+  // page startJob opened), so counting captures counts pages.
+  jobPageCounter++;
   captureSession = {
     tabId,
     doi,
     expectedUrl,
     sawPdf: false,
     timeoutId: null,
-    pageCounter: 0,
+    pageCounter: jobPageCounter,
     lastMainUrl: null,
     lastMainStatus: null,
     lastMainContentType: null,
@@ -79,20 +93,19 @@ function armCaptureBase(doi, tabId, expectedUrl) {
     const url = captureSession.lastMainUrl || captureSession.expectedUrl || "";
 
     if (sc === 401 || sc === 403) {
-      self.failCapture(`Access denied (${sc}) — likely paywall/login required.`);
+      recordCaptureFailure(self.STATUS_ACCESS_ERROR, `Access denied (${sc}) — likely paywall/login required.`, url);
       captureSession = null;
     } else if (ct.includes("text/html") && self.looksPaywalledUrl(url)) {
-      self.failCapture("Redirected to a paywall/purchase/login page (no PDF served).");
+      recordCaptureFailure(self.STATUS_ACCESS_ERROR, "Redirected to a paywall/purchase/login page (no PDF served).", url);
       captureSession = null;
     } else if (ct.includes("text/html")) {
-      self.failCapture("Received HTML instead of PDF (likely paywall/login).");
+      recordCaptureFailure(self.STATUS_ACCESS_ERROR, "Received HTML instead of PDF (likely paywall/login).", url);
       captureSession = null;
     } else if (! captureSession.sawPdf) {
-      self.failCapture("No PDF response detected (possible paywall/login or blocked access).");
+      recordCaptureFailure(self.STATUS_NOT_FOUND, "No PDF response detected (possible paywall/login or blocked access).", url);
       captureSession = null;
     }
   }, CAPTURE_TIMEOUT_MS);
-  captureSession.pageCounter++;
   if (captureSession.pageCounter > 1 || expectedUrl === null) {
     targetType = "unknown";
   } else {
@@ -138,6 +151,7 @@ function startJob(doi) {
   const normalizedDoi = sanitizeDOI(doi) || null;
   const url = "https://doi.org/" + normalizedDoi;
 
+  jobPageCounter = 0;
   return browser.tabs.create({ url }).then(tab => {
     const job = {
       url,
@@ -164,6 +178,26 @@ function failCapture(reason) {
   return
 }
 
+// Push the current progress table to the status tab, if it is open.
+function sendProgressUpdate() {
+  browser.runtime.sendMessage({ type: "progress-update", html: self.toHtml() }).catch(() => {});
+}
+
+function recordCapture(status, targetUrl, session = captureSession) {
+  self.recordPdfCapture(session.doi, session.pageCounter, status, targetUrl);
+  self.sendProgressUpdate();
+}
+
+function recordDownload(status, filename, session = captureSession) {
+  self.recordPdfDownload(session.doi, session.pageCounter, status, filename);
+  self.sendProgressUpdate();
+}
+
+function recordCaptureFailure(status, reason, targetUrl) {
+  self.recordCapture(`${status}: ${reason}`, targetUrl);
+  self.failCapture(reason);
+}
+
 function saveLog(downloadLogCsv) {
   const blob = new Blob([downloadLogCsv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
@@ -176,9 +210,10 @@ function saveLog(downloadLogCsv) {
   self.sendStatus("Saved logfile to Downloads directory");
 }
 
-module.exports = { armCaptureAndNavigate, armCaptureBase, armCaptureOnly, failCapture, inRetrievePdfSession,
-                   looksPaywalledUrl, processIncomingPdfData, removeSlashes, retrievingAttachment, retrievingPdfFile, 
-                   sanitizeDOI, saveLog, startJob, storeDetailsInSessionData };
+module.exports = { CAPTURE_TIMEOUT_MS, armCaptureAndNavigate, armCaptureBase, armCaptureOnly, failCapture, inRetrievePdfSession,
+                   looksPaywalledUrl, processIncomingPdfData, recordCapture, recordCaptureFailure, recordDownload,
+                   removeSlashes, retrievingAttachment, retrievingPdfFile, sanitizeDOI, saveLog,
+                   sendProgressUpdate, startJob, storeDetailsInSessionData };
 if (typeof self !== "undefined") {
   self.armCaptureAndNavigate = armCaptureAndNavigate;
   self.armCaptureBase = armCaptureBase;
@@ -187,11 +222,15 @@ if (typeof self !== "undefined") {
   self.inRetrievePdfSession = inRetrievePdfSession;
   self.looksPaywalledUrl = looksPaywalledUrl;
   self.processIncomingPdfData = processIncomingPdfData;
+  self.recordCapture = recordCapture;
+  self.recordCaptureFailure = recordCaptureFailure;
+  self.recordDownload = recordDownload;
   self.removeSlashes = removeSlashes;
   self.retrievingAttachment = retrievingAttachment;
   self.retrievingPdfFile = retrievingPdfFile;
   self.sanitizeDOI = sanitizeDOI;
   self.saveLog = saveLog;
+  self.sendProgressUpdate = sendProgressUpdate;
   self.startJob = startJob;
   self.storeDetailsInSessionData = storeDetailsInSessionData;
 }

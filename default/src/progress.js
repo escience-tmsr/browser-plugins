@@ -51,13 +51,25 @@ function statusCell(status) {
   return `<td${cssAttr}>${status ? escapeHtml(status) : ""}</td>`;
 }
 
+// Shown in place of a query string cut off from an address.
+const SHORTENED_QUERY_MARK = "?…";
+
+// An address as shown in the table: without its query string, which can make addresses
+// thousands of characters long (such as the signed PDF addresses of ScienceDirect).
+function shortenedAddress(address) {
+  const queryStart = address.indexOf("?");
+  return queryStart === -1 ? address : address.slice(0, queryStart) + SHORTENED_QUERY_MARK;
+}
+
 // Web addresses become links that open in a new tab, so the status tab stays in place;
-// noopener keeps the opened page from reaching back into the status tab. Only http and
-// https addresses are linked, so no other kind of address (such as javascript:) can run.
+// noopener keeps the opened page from reaching back into the status tab. The link and
+// its tooltip keep the complete address. Only http and https addresses are linked, so
+// no other kind of address (such as javascript:) can run.
 function linkOrText(resultValue) {
   const escapedValue = escapeHtml(resultValue);
   if (!/^https?:\/\//i.test(resultValue)) return escapedValue;
-  return `<a href="${escapedValue}" target="_blank" rel="noopener noreferrer">${escapedValue}</a>`;
+  return `<a href="${escapedValue}" title="${escapedValue}" target="_blank" rel="noopener noreferrer">` +
+    `${escapeHtml(shortenedAddress(resultValue))}</a>`;
 }
 
 function resultCell(value, status) {
@@ -118,7 +130,9 @@ class ProgressRecorder {
       statusCell(row.captureStatus), resultCell(row.captureResult, row.captureStatus),
       statusCell(row.downloadStatus), resultCell(row.downloadResult, row.downloadStatus),
     ].join("");
-    return `<tr>${cells}</tr>`;
+    // The status tab reads a clicked row's DOI and page number from these attributes.
+    const rowAttributes = `data-doi="${escapeHtml(row.doi)}" data-page-counter="${escapeHtml(String(row.pageCounter))}"`;
+    return `<tr ${rowAttributes}>${cells}</tr>`;
   }
 
   toHtml() {

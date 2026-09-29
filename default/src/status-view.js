@@ -115,6 +115,32 @@ function appendLogLine(text) {
   updateAndFollowBottom(element, () => element.appendChild(line));
 }
 
+// The mouse button (MouseEvent.button) that opens a link in a background tab.
+const MIDDLE_MOUSE_BUTTON = 1;
+
+// Open an address clicked in the progress table in a new tab, and ask the background to
+// watch that tab for a PDF the user downloads by hand, for the clicked row (see
+// docs/assisted_download_plan.md, section 3). The tab is opened here rather than by the
+// link itself, as only then is its id known. A middle click or Ctrl-click opens it in
+// the background, as the browser would.
+async function openAssistedTab(clickEvent) {
+  const clickedLink = clickEvent.target.closest?.("a");
+  if (!clickedLink || !/^https?:\/\//i.test(clickedLink.href)) return;
+  if (clickEvent.type === "auxclick" && clickEvent.button !== MIDDLE_MOUSE_BUTTON) return;
+  const clickedRow = clickedLink.closest("tr");
+  if (!clickedRow?.dataset.doi) return;
+  clickEvent.preventDefault();
+  const openInBackground = clickEvent.button === MIDDLE_MOUSE_BUTTON || clickEvent.ctrlKey || clickEvent.metaKey;
+  const assistedTab = await browser.tabs.create({ url: clickedLink.href, active: !openInBackground });
+  return browser.runtime.sendMessage({
+    type: "watch-assisted-tab",
+    tabId: assistedTab.id,
+    doi: clickedRow.dataset.doi,
+    pageCounter: clickedRow.dataset.pageCounter,
+    clickedUrl: clickedLink.href,
+  }).catch(() => {});
+}
+
 function handleStatusViewMessage(msg) {
   if (msg?.type === "progress-update") {
     replaceProgressTable(msg.html);
@@ -138,6 +164,12 @@ function initStatusView() {
     const element = document.getElementById(id);
     if (element) watchScrolling(element);
   }
+  // On the container, not on the links, as the table is replaced on every update.
+  const progressElement = document.getElementById(PROGRESS_ELEMENT_ID);
+  if (progressElement) {
+    progressElement.addEventListener("click", openAssistedTab);
+    progressElement.addEventListener("auxclick", openAssistedTab);
+  }
   browser.runtime.onMessage.addListener(handleStatusViewMessage);
   return requestCurrentProgress();
 }
@@ -155,6 +187,8 @@ if (typeof module !== "undefined") {
     openOrFocusStatusTab,
     replaceProgressTable,
     appendLogLine,
+    MIDDLE_MOUSE_BUTTON,
+    openAssistedTab,
     handleStatusViewMessage,
     requestCurrentProgress,
     initStatusView,

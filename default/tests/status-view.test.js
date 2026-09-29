@@ -1,7 +1,7 @@
 const { STATUS_SUCCESS, STATUS_NOT_FOUND } = require("../src/progress");
 const {
   STATUS_VIEW_PAGE, PROGRESS_ELEMENT_ID, LOG_ELEMENT_ID, SCROLL_BOTTOM_TOLERANCE_PX,
-  COUNT_ID_SUFFIX, NEW_ENTRIES_ID_SUFFIX, SCROLLED_CLASS,
+  COUNT_ID_SUFFIX, NEW_ENTRIES_ID_SUFFIX, SCROLLED_CLASS, MIDDLE_MOUSE_BUTTON,
 } = require("../src/status-view");
 
 const DOI = "10.1000/example";
@@ -316,5 +316,72 @@ describe("initStatusView", () => {
     browser.runtime.sendMessage.mockRejectedValue(new Error("no receiver"));
     await statusView.initStatusView();
     expect(progressElement().childNodes.length).toBe(0);
+  });
+});
+
+describe("opening an address from the table in a watched tab", () => {
+  const CLICKED_URL = "https://www.sciencedirect.com/science/article/pii/S0000000000000000";
+  const ASSISTED_TAB_ID = 12;
+  const PAGE_COUNTER = "1";
+  const LEFT_MOUSE_BUTTON = 0;
+  const RIGHT_MOUSE_BUTTON = 2;
+  const WATCH_MESSAGE = {
+    type: "watch-assisted-tab", tabId: ASSISTED_TAB_ID, doi: DOI, pageCounter: PAGE_COUNTER, clickedUrl: CLICKED_URL,
+  };
+
+  // A table like the one progress.js renders, with one linked address.
+  const LINKED_TABLE_HTML = `<table><tbody><tr data-doi="${DOI}" data-page-counter="${PAGE_COUNTER}">` +
+    `<td><a href="${CLICKED_URL}" target="_blank">${CLICKED_URL}</a></td><td>${STATUS_SUCCESS}</td>` +
+    "</tr></tbody></table>";
+
+  // Dispatch a mouse event on the table's link or its first plain cell; returns the event.
+  async function clickInTable(eventType, eventOptions, onLink = true) {
+    const clickTarget = onLink ? progressElement().querySelector("a") : progressElement().querySelectorAll("td")[1];
+    const mouseEvent = new MouseEvent(eventType, { bubbles: true, cancelable: true, ...eventOptions });
+    clickTarget.dispatchEvent(mouseEvent);
+    await Promise.resolve();  // let the handler's tabs.create resolve
+    await Promise.resolve();
+    return mouseEvent;
+  }
+
+  beforeEach(async () => {
+    setUpStatusPage();
+    browser.runtime.sendMessage.mockResolvedValue({ html: LINKED_TABLE_HTML });
+    browser.tabs.create.mockResolvedValue({ id: ASSISTED_TAB_ID });
+    await statusView.initStatusView();
+    browser.runtime.sendMessage.mockClear();
+  });
+
+  test("a click opens the address in an active tab and has it watched for the clicked row", async () => {
+    const mouseEvent = await clickInTable("click", { button: LEFT_MOUSE_BUTTON });
+    expect(mouseEvent.defaultPrevented).toBe(true);
+    expect(browser.tabs.create).toHaveBeenCalledWith({ url: CLICKED_URL, active: true });
+    expect(browser.runtime.sendMessage).toHaveBeenCalledWith(WATCH_MESSAGE);
+  });
+
+  test.each([
+    ["a middle click", "auxclick", { button: MIDDLE_MOUSE_BUTTON }],
+    ["a Ctrl-click", "click", { button: LEFT_MOUSE_BUTTON, ctrlKey: true }],
+  ])("%s opens the address in a background tab", async (clickName, eventType, eventOptions) => {
+    await clickInTable(eventType, eventOptions);
+    expect(browser.tabs.create).toHaveBeenCalledWith({ url: CLICKED_URL, active: false });
+    expect(browser.runtime.sendMessage).toHaveBeenCalledWith(WATCH_MESSAGE);
+  });
+
+  test("a right click is left to the browser, for its context menu", async () => {
+    const mouseEvent = await clickInTable("auxclick", { button: RIGHT_MOUSE_BUTTON });
+    expect(mouseEvent.defaultPrevented).toBe(false);
+    expect(browser.tabs.create).not.toHaveBeenCalled();
+  });
+
+  test("a click outside a link does nothing", async () => {
+    await clickInTable("click", { button: LEFT_MOUSE_BUTTON }, false);
+    expect(browser.tabs.create).not.toHaveBeenCalled();
+  });
+
+  test("still works after the table has been replaced", async () => {
+    statusView.replaceProgressTable(LINKED_TABLE_HTML);
+    await clickInTable("click", { button: LEFT_MOUSE_BUTTON });
+    expect(browser.runtime.sendMessage).toHaveBeenCalledWith(WATCH_MESSAGE);
   });
 });

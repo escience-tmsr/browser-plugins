@@ -379,4 +379,5 @@ declaration:
     the robots.txt parser, its fetching and caching, the request check and
     the recording of blocks (steps 2 to 5 of docs/robots_txt_plan.md).
     2026-09-29 update, covering steps 3 and 4 of
-    docs/assisted_download_plan.md.
+    docs/assisted_download_plan.md, the maintainer's requests from testing,
+    and the README's evaluation text for the maintainer's test of that day.

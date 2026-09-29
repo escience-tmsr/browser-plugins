@@ -1,7 +1,6 @@
 // The popup's elements, as in popup.html.
 const POPUP_HTML = `
   <input type="text" id="doiInput">
-  <button id="saveLog"></button>
   <button id="startButton"></button>
   <button id="openStatusTable"></button>
   <p id="status"></p>`;

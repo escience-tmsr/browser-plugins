@@ -97,7 +97,6 @@ async function processDownloadChange(delta) {
   if (state === "complete") {
     self.sendStatus(`✅ Saved PDF to ${item.filename}`);
     self.recordDownload(self.STATUS_SUCCESS, basename, captureSession, item.filename);
-    downloadLog = downloadLog.concat(captureSession.doi, ",", item.filename, "\n");
   } else {
     self.recordDownload(`${self.STATUS_ACCESS_ERROR}: ${reason}`, basename);
     self.failCapture(reason);
@@ -556,25 +555,13 @@ function recordContentProgress(msg) {
   self.sendProgressUpdate();
 }
 
-function saveLog(downloadLogCsv) {
-  const blob = new Blob([downloadLogCsv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-
-  browser.downloads.download({
-    url,
-    filename: "my_table.csv",
-    conflictAction: "uniquify"
-  });
-  self.sendStatus("Saved logfile to Downloads directory");
-}
-
 if (typeof module !== "undefined") {
   module.exports = { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureAndNavigate, armCaptureBase, armCaptureOnly,
                      checkRobotsBeforeRequest, clearAssistedTabs, failCapture, forgetAssistedTab,
                      MANUAL_PAGE_SUFFIX, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange,
                      processIncomingPdfData, recordCapture,
                      recordCaptureFailure, recordContentProgress, recordDownload, recordRobotsBlock, removeSlashes, retrievingAttachment,
-                     retrievingPdfFile, sanitizeDOI, saveLog, seedPageLoadRow, sendProgressUpdate, startJob,
+                     retrievingPdfFile, sanitizeDOI, seedPageLoadRow, sendProgressUpdate, startJob,
                      storeDetailsInSessionData, watchAssistedTab, watchTabOpenedFromAssistedTab,
                      DOWNLOADED_BY_HAND, OPENED_BY_HAND, PDF_VIEWER_DOWNLOAD_PREFIX, VIEWED_BY_HAND,
                      VIEWED_NOT_DOWNLOADED, attributeAssistedDownload, pdfResponseFileName,
@@ -604,7 +591,6 @@ if (typeof self !== "undefined") {
   self.retrievingAttachment = retrievingAttachment;
   self.retrievingPdfFile = retrievingPdfFile;
   self.sanitizeDOI = sanitizeDOI;
-  self.saveLog = saveLog;
   self.seedPageLoadRow = seedPageLoadRow;
   self.sendProgressUpdate = sendProgressUpdate;
   self.startJob = startJob;

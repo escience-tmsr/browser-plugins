@@ -22,7 +22,7 @@
                 "src/robots.js",
                 "src/background.functions.js",
                 "background.js"],
-    "persistent": false
+    "persistent": true
   },
   "content_scripts": [
     {

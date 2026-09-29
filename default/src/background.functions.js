@@ -277,7 +277,8 @@ function recordRobotsBlock(jobDoi, blockedUrl, blockReason, requestedByPage) {
 
 // Tabs opened from the progress table, watched for a PDF the user downloads by hand (see
 // docs/assisted_download_plan.md, section 3). Kept in browser.storage.local, like the
-// job, so they survive the background page being unloaded, as
+// job, so they survive the extension being reloaded (tab numbers stay the same until
+// Firefox restarts), as
 // { [tabId]: { doi, clickedPageCounter, manualPageLabel, clickedUrl, pdfResponses } }.
 const ASSISTED_TABS_KEY = "assistedTabs";
 // Downloads that started in a watched tab, until they end (see attributeAssistedDownload),

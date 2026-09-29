@@ -44,7 +44,7 @@ The status tab contains:
 
 The table and the log each take up half of the status tab and scroll separately. Each keeps its newest entries at the bottom in view; after scrolling up to read older entries, the view stays put until it is scrolled back to the bottom. The headings show the number of table rows and log lines, a shadow under a heading shows that there are entries above the visible part, and a button such as "▼ 3 new lines" shows that entries arrived below it while scrolled up; clicking it jumps back to the bottom.
 
-The table is kept by the extension's background script, so closing and reopening the status tab shows the table again. It is emptied when the extension is reloaded, or when Firefox unloads the idle background script.
+The table is kept by the extension's background script, so closing and reopening the status tab shows the table again. It is emptied when the extension is reloaded or Firefox is restarted. (Before, it was also emptied when Firefox unloaded the idle background script after about 30 seconds; the background script now stays loaded.)
 
 ### robots.txt
 

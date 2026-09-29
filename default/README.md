@@ -29,7 +29,7 @@ The extension will open the main web page associated with DOI, look for a button
 
 ### Status table
 
-The popup closes as soon as another tab gets the focus, so the extension shows its progress in a separate status tab. Clicking `Process DOI` opens this tab (or brings it to the front if it is already open), opens the DOI's web page in a background tab, so the status tab stays in view, and closes the popup. The status tab can also be opened without processing a DOI, with the `Open status table` button in the popup.
+The popup closes as soon as another tab gets the focus, so the extension shows its progress in a separate status tab, named "DOI progress" and marked with the extension's icon. Clicking `Process DOI` opens this tab (or brings it to the front if it is already open), opens the DOI's web page in a background tab, so the status tab stays in view, and closes the popup. The status tab can also be opened without processing a DOI, with the `Open status table` button in the popup.
 
 The status tab contains:
 

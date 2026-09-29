@@ -143,7 +143,7 @@ describe("toHtml", () => {
     recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, "http://example.com/1");
     recorder.recordPublisherPageAccess(DOI, 2, SUCCESS, "http://example.com/2");
     const html = recorder.toHtml();
-    expect(html.match(/<tr>/g)).toHaveLength(3); // header + 2 rows
+    expect(html.match(/<tr[ >]/g)).toHaveLength(3); // header + 2 rows
   });
 
   test("includes the recorded doi, page number, and result values", () => {
@@ -206,14 +206,30 @@ describe("toHtml", () => {
   });
 });
 
+describe("row attributes", () => {
+  test("each row carries its DOI and page number, escaped", () => {
+    const manualPageLabel = "1 (by hand)";
+    const recorder = new progress.ProgressRecorder();
+    recorder.recordPublisherPageAccess(UNSAFE_DOI, 2, SUCCESS, PAGE_URL);
+    recorder.recordPublisherPageAccess(DOI, manualPageLabel, SUCCESS, PAGE_URL);
+    const table = new DOMParser().parseFromString(recorder.toHtml(), "text/html");
+    const rowData = [...table.querySelectorAll("tbody tr")].map((row) => ({ ...row.dataset }));
+    expect(rowData).toEqual([
+      { doi: UNSAFE_DOI, pageCounter: "2" },
+      { doi: DOI, pageCounter: manualPageLabel },
+    ]);
+  });
+});
+
 describe("result links", () => {
   const SCRIPT_URL = "javascript:alert(1)";
 
-  // The links in the rendered table, as { href, target, rel, text }.
+  // The links in the rendered table, as { href, title, target, rel, text }.
   function renderedLinks(recorder) {
     const table = new DOMParser().parseFromString(recorder.toHtml(), "text/html");
     return [...table.querySelectorAll("a")].map((link) => ({
       href: link.getAttribute("href"),
+      title: link.getAttribute("title"),
       target: link.getAttribute("target"),
       rel: link.getAttribute("rel"),
       text: link.textContent,
@@ -227,16 +243,26 @@ describe("result links", () => {
     recorder.recordPdfCapture(DOI, 1, `${ACCESS_ERROR}: blocked by robots.txt`, PUBLISHER_URL);
     const newTabLink = { target: "_blank", rel: "noopener noreferrer" };
     expect(renderedLinks(recorder)).toEqual([
-      { href: PAGE_URL, text: PAGE_URL, ...newTabLink },
-      { href: PDF_URL, text: PDF_URL, ...newTabLink },
-      { href: PUBLISHER_URL, text: PUBLISHER_URL, ...newTabLink },
+      { href: PAGE_URL, title: PAGE_URL, text: PAGE_URL, ...newTabLink },
+      { href: PDF_URL, title: PDF_URL, text: PDF_URL, ...newTabLink },
+      { href: PUBLISHER_URL, title: PUBLISHER_URL, text: PUBLISHER_URL, ...newTabLink },
     ]);
   });
 
-  test("keeps an address with special characters intact in the link", () => {
+  test("keeps an address with special characters intact in the link and its tooltip", () => {
     const recorder = new progress.ProgressRecorder();
     recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, UNSAFE_URL);
-    expect(renderedLinks(recorder)).toEqual([expect.objectContaining({ href: UNSAFE_URL, text: UNSAFE_URL })]);
+    expect(renderedLinks(recorder)).toEqual([expect.objectContaining({ href: UNSAFE_URL, title: UNSAFE_URL })]);
+  });
+
+  test("shows an address without its query string, but links to the complete address", () => {
+    const addressPath = "https://pdf.example.org/1/main.pdf";
+    const signedAddress = `${addressPath}?X-Amz-Expires=300&X-Amz-Signature=${"0".repeat(64)}`;
+    const recorder = new progress.ProgressRecorder();
+    recorder.recordPdfCapture(DOI, 1, SUCCESS, signedAddress);
+    expect(renderedLinks(recorder)).toEqual([
+      expect.objectContaining({ href: signedAddress, title: signedAddress, text: `${addressPath}?…` }),
+    ]);
   });
 
   test("does not link a file name, or an address that is not http or https", () => {

@@ -272,6 +272,71 @@ function recordRobotsBlock(jobDoi, blockedUrl, blockReason, requestedByPage) {
   self.sendProgressUpdate();
 }
 
+// Tabs opened from the progress table, watched for a PDF the user downloads by hand (see
+// docs/assisted_download_plan.md, section 3). Kept in browser.storage.local, like the
+// job, so they survive the background page being unloaded, as
+// { [tabId]: { doi, clickedPageCounter, manualPageLabel, clickedUrl, pdfResponses } }.
+const ASSISTED_TABS_KEY = "assistedTabs";
+// Added to the clicked row's page number to number the row of a manual take-over.
+const MANUAL_PAGE_SUFFIX = " (by hand)";
+
+// Changes to the watched tabs, one after the other: each reads the stored tabs and writes
+// them back, and two at the same time would lose one of the changes.
+let assistedTabsUpdate = Promise.resolve();
+
+function updateAssistedTabs(changeAssistedTabs) {
+  assistedTabsUpdate = assistedTabsUpdate.then(async () => {
+    const { [ASSISTED_TABS_KEY]: storedTabs } = await browser.storage.local.get(ASSISTED_TABS_KEY);
+    const assistedTabs = storedTabs || {};
+    if (changeAssistedTabs(assistedTabs) === false) return;
+    await browser.storage.local.set({ [ASSISTED_TABS_KEY]: assistedTabs });
+  }).catch((updateError) => {
+    self.sendStatus(`Could not update the watched tabs: ${updateError.message}`, isError = true);
+  });
+  return assistedTabsUpdate;
+}
+
+// Watch a tab the status tab opened for an address in the row (doi, pageCounter).
+// Clicking an address in a manual row continues that row.
+function watchAssistedTab(tabId, doi, pageCounter, clickedUrl) {
+  const clickedPage = String(pageCounter);
+  const clickedPageCounter = clickedPage.endsWith(MANUAL_PAGE_SUFFIX)
+    ? clickedPage.slice(0, -MANUAL_PAGE_SUFFIX.length) : clickedPage;
+  const manualPageLabel = clickedPageCounter + MANUAL_PAGE_SUFFIX;
+  self.sendStatus(`👀 Watching tab ${tabId} for a PDF of ${doi}, to record in row "${manualPageLabel}"`);
+  return updateAssistedTabs((assistedTabs) => {
+    assistedTabs[tabId] = { doi, clickedPageCounter, manualPageLabel, clickedUrl, pdfResponses: [] };
+  });
+}
+
+// tabs.onCreated: a tab opened from a watched tab, such as a publisher's "View PDF" tab,
+// is watched for the same row.
+function watchTabOpenedFromAssistedTab(createdTab) {
+  if (createdTab.openerTabId === undefined) return Promise.resolve();
+  return updateAssistedTabs((assistedTabs) => {
+    const openerEntry = assistedTabs[createdTab.openerTabId];
+    if (!openerEntry) return false;
+    assistedTabs[createdTab.id] = { ...openerEntry, pdfResponses: [] };
+  });
+}
+
+// tabs.onRemoved: a closed tab is no longer watched.
+function forgetAssistedTab(closedTabId) {
+  return updateAssistedTabs((assistedTabs) => {
+    if (!(closedTabId in assistedTabs)) return false;
+    delete assistedTabs[closedTabId];
+  });
+}
+
+// runtime.onStartup: Firefox numbers tabs anew after a restart, so the stored tabs could
+// match unrelated tabs.
+function clearAssistedTabs() {
+  return updateAssistedTabs((assistedTabs) => {
+    if (Object.keys(assistedTabs).length === 0) return false;
+    for (const tabId of Object.keys(assistedTabs)) delete assistedTabs[tabId];
+  });
+}
+
 function looksPaywalledUrl(u) {
   return ["paywall","subscribe","purchase","checkout","cart","basket","login","signin","account"]
     .some(k => u.includes(k));
@@ -349,17 +414,20 @@ function saveLog(downloadLogCsv) {
 
 if (typeof module !== "undefined") {
   module.exports = { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureAndNavigate, armCaptureBase, armCaptureOnly,
-                     checkRobotsBeforeRequest, failCapture, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange,
+                     checkRobotsBeforeRequest, clearAssistedTabs, failCapture, forgetAssistedTab,
+                     MANUAL_PAGE_SUFFIX, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange,
                      processIncomingPdfData, recordCapture,
                      recordCaptureFailure, recordContentProgress, recordDownload, recordRobotsBlock, removeSlashes, retrievingAttachment,
                      retrievingPdfFile, sanitizeDOI, saveLog, seedPageLoadRow, sendProgressUpdate, startJob,
-                     storeDetailsInSessionData };
+                     storeDetailsInSessionData, watchAssistedTab, watchTabOpenedFromAssistedTab };
 }
 if (typeof self !== "undefined") {
   self.armCaptureAndNavigate = armCaptureAndNavigate;
   self.armCaptureBase = armCaptureBase;
   self.armCaptureOnly = armCaptureOnly;
   self.checkRobotsBeforeRequest = checkRobotsBeforeRequest;
+  self.clearAssistedTabs = clearAssistedTabs;
+  self.forgetAssistedTab = forgetAssistedTab;
   self.failCapture = failCapture;
   self.inRetrievePdfSession = inRetrievePdfSession;
   self.looksPaywalledUrl = looksPaywalledUrl;
@@ -379,4 +447,6 @@ if (typeof self !== "undefined") {
   self.sendProgressUpdate = sendProgressUpdate;
   self.startJob = startJob;
   self.storeDetailsInSessionData = storeDetailsInSessionData;
+  self.watchAssistedTab = watchAssistedTab;
+  self.watchTabOpenedFromAssistedTab = watchTabOpenedFromAssistedTab;
 }

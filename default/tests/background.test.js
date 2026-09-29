@@ -1,4 +1,4 @@
-const { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureBase, checkRobotsBeforeRequest, failCapture, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange, processIncomingPdfData, recordCapture, recordCaptureFailure, recordContentProgress, recordDownload, recordRobotsBlock, removeSlashes, retrievingAttachment, retrievingPdfFile, sanitizeDOI, seedPageLoadRow, sendProgressUpdate, startJob, storeDetailsInSessionData }  = require("../src/background.functions");
+const { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureBase, checkRobotsBeforeRequest, clearAssistedTabs, failCapture, forgetAssistedTab, MANUAL_PAGE_SUFFIX, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange, processIncomingPdfData, recordCapture, recordCaptureFailure, recordContentProgress, recordDownload, recordRobotsBlock, removeSlashes, retrievingAttachment, retrievingPdfFile, sanitizeDOI, seedPageLoadRow, sendProgressUpdate, startJob, storeDetailsInSessionData, watchAssistedTab, watchTabOpenedFromAssistedTab }  = require("../src/background.functions");
 const { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED, STATUS_PENDING } = require("../src/progress");
 const STATUS_CONSTANTS = { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED, STATUS_PENDING };
 
@@ -544,6 +544,101 @@ describe("recordRobotsBlock", () => {
     expect(global.captureSession).toBeNull();
     jest.runAllTimers();
     expect(captureTimeout).not.toHaveBeenCalled();
+  });
+});
+
+describe("watched tabs for downloads by hand", () => {
+  const ASSISTED_TAB_ID = 12;
+  const PDF_TAB_ID = 13;
+  const OTHER_TAB_ID = 14;
+  const CLICKED_PAGE_COUNTER = "1";
+  const MANUAL_PAGE_LABEL = CLICKED_PAGE_COUNTER + MANUAL_PAGE_SUFFIX;
+  const CLICKED_URL = "https://www.sciencedirect.com/science/article/pii/S0000000000000000";
+  const WATCHED_ENTRY = {
+    doi: DOI, clickedPageCounter: CLICKED_PAGE_COUNTER, manualPageLabel: MANUAL_PAGE_LABEL,
+    clickedUrl: CLICKED_URL, pdfResponses: [],
+  };
+
+  // Stands in for browser.storage.local, keeping copies like the real storage does.
+  let storedItems;
+
+  function copyOf(storedValue) {
+    return JSON.parse(JSON.stringify(storedValue));
+  }
+
+  function storedAssistedTabs() {
+    return storedItems.assistedTabs;
+  }
+
+  beforeEach(() => {
+    storedItems = {};
+    global.self = { sendStatus: jest.fn() };
+    global.browser = {
+      storage: {
+        local: {
+          get: jest.fn(async (storageKey) => (storageKey in storedItems ? { [storageKey]: copyOf(storedItems[storageKey]) } : {})),
+          set: jest.fn(async (newItems) => { Object.assign(storedItems, copyOf(newItems)); }),
+        },
+      },
+    };
+  });
+
+  test("watches a tab opened from the table for a new row numbered after the clicked row", async () => {
+    await watchAssistedTab(ASSISTED_TAB_ID, DOI, CLICKED_PAGE_COUNTER, CLICKED_URL);
+    expect(storedAssistedTabs()).toEqual({ [ASSISTED_TAB_ID]: WATCHED_ENTRY });
+    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringContaining(`row "${MANUAL_PAGE_LABEL}"`));
+  });
+
+  test("continues a manual row when an address in that row is clicked", async () => {
+    await watchAssistedTab(ASSISTED_TAB_ID, DOI, MANUAL_PAGE_LABEL, CLICKED_URL);
+    expect(storedAssistedTabs()[ASSISTED_TAB_ID]).toEqual(WATCHED_ENTRY);
+  });
+
+  test("watches a tab opened from a watched tab for the same row", async () => {
+    await watchAssistedTab(ASSISTED_TAB_ID, DOI, CLICKED_PAGE_COUNTER, CLICKED_URL);
+    await watchTabOpenedFromAssistedTab({ id: PDF_TAB_ID, openerTabId: ASSISTED_TAB_ID });
+    expect(storedAssistedTabs()[PDF_TAB_ID]).toEqual(WATCHED_ENTRY);
+  });
+
+  test.each([
+    ["an unwatched tab", { id: PDF_TAB_ID, openerTabId: OTHER_TAB_ID }],
+    ["no tab", { id: PDF_TAB_ID }],
+  ])("does not watch a tab opened from %s", async (openerName, createdTab) => {
+    await watchAssistedTab(ASSISTED_TAB_ID, DOI, CLICKED_PAGE_COUNTER, CLICKED_URL);
+    browser.storage.local.set.mockClear();
+    await watchTabOpenedFromAssistedTab(createdTab);
+    expect(browser.storage.local.set).not.toHaveBeenCalled();
+    expect(storedAssistedTabs()).not.toHaveProperty(String(PDF_TAB_ID));
+  });
+
+  test("forgets a watched tab when it is closed, and ignores other closed tabs", async () => {
+    await watchAssistedTab(ASSISTED_TAB_ID, DOI, CLICKED_PAGE_COUNTER, CLICKED_URL);
+    await forgetAssistedTab(OTHER_TAB_ID);
+    expect(storedAssistedTabs()).toHaveProperty(String(ASSISTED_TAB_ID));
+    await forgetAssistedTab(ASSISTED_TAB_ID);
+    expect(storedAssistedTabs()).toEqual({});
+  });
+
+  test("forgets all watched tabs when Firefox starts", async () => {
+    await watchAssistedTab(ASSISTED_TAB_ID, DOI, CLICKED_PAGE_COUNTER, CLICKED_URL);
+    await clearAssistedTabs();
+    expect(storedAssistedTabs()).toEqual({});
+  });
+
+  test("keeps both of two changes made at the same time", async () => {
+    await Promise.all([
+      watchAssistedTab(ASSISTED_TAB_ID, DOI, CLICKED_PAGE_COUNTER, CLICKED_URL),
+      watchAssistedTab(OTHER_TAB_ID, DOI, CLICKED_PAGE_COUNTER, CLICKED_URL),
+    ]);
+    expect(Object.keys(storedAssistedTabs()).sort()).toEqual([String(ASSISTED_TAB_ID), String(OTHER_TAB_ID)]);
+  });
+
+  test("reports a failing storage, and goes on with the next change", async () => {
+    browser.storage.local.set.mockRejectedValueOnce(new Error("storage full"));
+    await watchAssistedTab(ASSISTED_TAB_ID, DOI, CLICKED_PAGE_COUNTER, CLICKED_URL);
+    expect(self.sendStatus).toHaveBeenCalledWith("Could not update the watched tabs: storage full", true);
+    await watchAssistedTab(OTHER_TAB_ID, DOI, CLICKED_PAGE_COUNTER, CLICKED_URL);
+    expect(storedAssistedTabs()).toHaveProperty(String(OTHER_TAB_ID));
   });
 });
 

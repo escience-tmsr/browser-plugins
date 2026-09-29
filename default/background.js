@@ -33,6 +33,12 @@ browser.webRequest.onBeforeRequest.addListener(
   ["blocking"]
 );
 
+// Tabs opened from the progress table, and tabs opened from those, are watched for a
+// PDF the user downloads by hand; see docs/assisted_download_plan.md.
+browser.tabs.onCreated.addListener((createdTab) => self.watchTabOpenedFromAssistedTab(createdTab));
+browser.tabs.onRemoved.addListener((closedTabId) => self.forgetAssistedTab(closedTabId));
+browser.runtime.onStartup.addListener(() => self.clearAssistedTabs());
+
 browser.downloads.onChanged.addListener((delta) => {
   self.processDownloadChange(delta);
 });
@@ -48,6 +54,11 @@ browser.runtime.onMessage.addListener((msg, sender) => {
   if (msg.type === "get-progress") {
     // sent by the status tab when it opens: do not report
     return Promise.resolve({ html: self.toHtml() });
+  }
+
+  if (msg.type === "watch-assisted-tab") {
+    // sent by the status tab when an address in the table is clicked
+    return self.watchAssistedTab(msg.tabId, msg.doi, msg.pageCounter, msg.clickedUrl);
   }
 
   if (msg.type === "record-progress") {

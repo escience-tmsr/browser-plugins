@@ -22,7 +22,7 @@ After these steps, the extension can be used for accessing paper PDFs via their 
 
 1. Access the extension by clicking on the jigsaw puzzle piece logo in the top right of the browser window: ![](../images/puzzle_piece.png "")
 2. A popup window appears, open the extension by clicking on its name: `Default extension`
-3. Fill in a DOI under `DOI` and click the `Process DOI` button. Here is an example DOI from the open access journal [JAIR](https://jair.org): 10.1613/jair.49
+3. Fill in a DOI under `DOI` and click the `Process DOI` button, or press Enter. Here is an example DOI from the open access journal [JAIR](https://jair.org): 10.1613/jair.49
 4. There is an option to save a list of successful downloads of a session by clicking the `Save log` button in the extension, left of the `Process DOI` button. The list will be saved in the file `my_table.csv` in the user's Downloads directory.
 
 The extension will open the main web page associated with DOI, look for a button labeled PDF or Download on the page and try to download the PDF linked from the page. If successful, the PDF will be stored in the `Downloads` directory of the browser user with the DOI as name (slashes replaced by underscores). When downloading fails, an error message will be displayed. 

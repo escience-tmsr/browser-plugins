@@ -300,7 +300,9 @@ ai_usage:
         are links that open in a new tab (target="_blank", rel="noopener
         noreferrer"); file names and other values stay plain text. The
         status tab is named "DOI progress" and shows the extension's icon,
-        requested by the maintainer on 2026-09-29.
+        requested by the maintainer on 2026-09-29, as is processing a DOI by
+        pressing Enter in the popup's DOI field (default/popup.js, with the
+        first tests for the popup in default/tests/popup.test.js).
       ai_involvement: >-
         Requested by the maintainer on 2026-09-28 while testing the
         robots.txt steps; implemented by the agent. Tested by the agent with

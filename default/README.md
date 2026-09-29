@@ -22,14 +22,14 @@ After these steps, the extension can be used for accessing paper PDFs via their 
 
 1. Access the extension by clicking on the jigsaw puzzle piece logo in the top right of the browser window: ![](../images/puzzle_piece.png "")
 2. A popup window appears, open the extension by clicking on its name: `Default extension`
-3. Fill in a DOI under `DOI` and click the `Process DOI` button. Here is an example DOI from the open access journal [JAIR](https://jair.org): 10.1613/jair.49
+3. Fill in a DOI under `DOI` and click the `Process DOI` button, or press Enter. Here is an example DOI from the open access journal [JAIR](https://jair.org): 10.1613/jair.49
 4. There is an option to save a list of successful downloads of a session by clicking the `Save log` button in the extension, left of the `Process DOI` button. The list will be saved in the file `my_table.csv` in the user's Downloads directory.
 
 The extension will open the main web page associated with DOI, look for a button labeled PDF or Download on the page and try to download the PDF linked from the page. If successful, the PDF will be stored in the `Downloads` directory of the browser user with the DOI as name (slashes replaced by underscores). When downloading fails, an error message will be displayed. 
 
 ### Status table
 
-The popup closes as soon as another tab gets the focus, so the extension shows its progress in a separate status tab. Clicking `Process DOI` opens this tab (or brings it to the front if it is already open), opens the DOI's web page in a background tab, so the status tab stays in view, and closes the popup. The status tab can also be opened without processing a DOI, with the `Open status table` button in the popup.
+The popup closes as soon as another tab gets the focus, so the extension shows its progress in a separate status tab, named "DOI progress" and marked with the extension's icon. Clicking `Process DOI` opens this tab (or brings it to the front if it is already open), opens the DOI's web page in a background tab, so the status tab stays in view, and closes the popup. The status tab can also be opened without processing a DOI, with the `Open status table` button in the popup.
 
 The status tab contains:
 
@@ -44,7 +44,7 @@ The status tab contains:
 
 The table and the log each take up half of the status tab and scroll separately. Each keeps its newest entries at the bottom in view; after scrolling up to read older entries, the view stays put until it is scrolled back to the bottom. The headings show the number of table rows and log lines, a shadow under a heading shows that there are entries above the visible part, and a button such as "▼ 3 new lines" shows that entries arrived below it while scrolled up; clicking it jumps back to the bottom.
 
-The table is kept by the extension's background script, so closing and reopening the status tab shows the table again. It is emptied when the extension is reloaded, or when Firefox unloads the idle background script.
+The table is kept by the extension's background script, so closing and reopening the status tab shows the table again. It is emptied when the extension is reloaded or Firefox is restarted. (Before, it was also emptied when Firefox unloaded the idle background script after about 30 seconds; the background script now stays loaded.)
 
 ### robots.txt
 
@@ -56,6 +56,18 @@ Websites state in their [robots.txt](https://www.rfc-editor.org/rfc/rfc9309) fil
 
 When a website's robots.txt cannot be fetched because of a server error (HTTP status 500-599 or 429), a network error or a timeout of 10 seconds, the extension does not visit the website either, with the reason `robots.txt unreachable`. When the website has no robots.txt (HTTP status 400-499 other than 429), all its pages may be visited. The extension remembers each website's robots.txt for 24 hours, or for 10 minutes after a failed attempt. Only the pages the tab loads are checked, not the images and scripts that pages use, and pages in other tabs are not checked.
 
+### Downloading by hand
+
+When the extension cannot get a PDF itself, the table often shows where it can be found, for example a publisher's page that robots.txt kept the extension from visiting. Clicking an address in the table opens it in a new tab, which the extension watches for the rest of the process, together with the tabs opened from it (such as a publisher's "View PDF" tab). The extension does not search, click or load anything in those tabs: every step there is the user's own, so robots.txt does not apply.
+
+As soon as a PDF appears in a watched tab, the table gets a new row for the DOI, numbered after the clicked row, for example `1 (by hand)`, so the extension's own attempt stays visible above it:
+
+* *publisher page*: copied from the clicked row when that page was accessible; otherwise `SUCCESS: opened by hand` with the clicked address;
+* *pdf capture*: `SUCCESS: viewed by hand` with the PDF's address, when Firefox shows the PDF;
+* *pdf download*: `PENDING: viewed, not downloaded yet` while the PDF is only shown, and `SUCCESS: downloaded by hand` with the file name once it is saved, also logged as `📥 PDF downloaded by hand for <DOI>: <file name>`. A cancelled download is shown as `ACCESS_ERROR` with the reason.
+
+The file keeps the name the website gives it, as Firefox does not let extensions rename downloads they did not start. A PDF saved from Firefox's PDF viewer is recognised by the tab that is in front when saving starts, and only recorded when its name is that of a PDF shown in the watched tab. The extension keeps only the addresses and names of the PDFs in the watched tabs, and forgets a tab when it is closed and all of them when Firefox starts.
+
 ### Known limitations
 
 * One DOI is processed at a time. Starting a new DOI while another is still being processed stops the first one.
@@ -63,6 +75,7 @@ When a website's robots.txt cannot be fetched because of a server error (HTTP st
 * When the same DOI is processed twice, the second run overwrites the first run's table cells only where it records something new.
 * Firefox may open a saved PDF in a new tab (setting: Settings, Applications, Portable Document Format), which moves the status tab out of view.
 * After a DOI has been processed, pages opened in its tab are still checked against robots.txt, until the next DOI is processed.
+* Downloading by hand was tested with ScienceDirect only; publishers that show a PDF in their own viewer, or save it themselves, may not be recognised. A PDF saved from Firefox's viewer under another name (in a "Save as" dialog) is not recorded.
 
 ## Evaluation
 

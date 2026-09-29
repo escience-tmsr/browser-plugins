@@ -5,6 +5,8 @@ let pageLoadTimeoutId = null;
 
 browser.webRequest.onHeadersReceived.addListener(
   (details) => {
+    // A PDF in a tab watched for a download by hand; see docs/assisted_download_plan.md.
+    self.rememberAssistedPdfResponse(details);
     if (!self.inRetrievePdfSession(details.tabId)) return;
     self.storeDetailsInSessionData(details);
 
@@ -38,6 +40,7 @@ browser.webRequest.onBeforeRequest.addListener(
 browser.tabs.onCreated.addListener((createdTab) => self.watchTabOpenedFromAssistedTab(createdTab));
 browser.tabs.onRemoved.addListener((closedTabId) => self.forgetAssistedTab(closedTabId));
 browser.runtime.onStartup.addListener(() => self.clearAssistedTabs());
+browser.downloads.onCreated.addListener((downloadItem) => self.attributeAssistedDownload(downloadItem));
 
 browser.downloads.onChanged.addListener((delta) => {
   self.processDownloadChange(delta);

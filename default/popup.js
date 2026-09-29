@@ -28,6 +28,14 @@ document.getElementById("startButton").addEventListener("click", () => {
 
 });
 
+// Pressing Enter in the DOI field processes the DOI, like the "Process DOI" button; not
+// while an input method is still composing text, where Enter confirms the text.
+document.getElementById("doiInput").addEventListener("keydown", (keyEvent) => {
+  if (keyEvent.key !== "Enter" || keyEvent.isComposing) return;
+  keyEvent.preventDefault();
+  document.getElementById("startButton").click();
+});
+
 document.getElementById("openStatusTable").addEventListener("click", () => {
   openOrFocusStatusTab().then(() => {
     window.close();

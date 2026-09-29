@@ -121,6 +121,12 @@ class ProgressRecorder {
     row.downloadResult = filename;
   }
 
+  // A copy of the row (doi, pageCounter) as recorded so far, or null if there is none.
+  recordedRow(doi, pageCounter) {
+    const row = this._rows.get(`${doi}#${pageCounter}`);
+    return row ? { ...row } : null;
+  }
+
   _rowHtml(row) {
     const cells = [
       cell(row.doi),
@@ -167,6 +173,10 @@ function recordPdfDownload(doi, pageCounter, status, filename) {
   getRecorder().recordPdfDownload(doi, pageCounter, status, filename);
 }
 
+function recordedRow(doi, pageCounter) {
+  return getRecorder().recordedRow(doi, pageCounter);
+}
+
 function toHtml() {
   return getRecorder().toHtml();
 }
@@ -183,6 +193,7 @@ const exported = {
   recordPdfLinkFound,
   recordPdfCapture,
   recordPdfDownload,
+  recordedRow,
   toHtml,
 };
 

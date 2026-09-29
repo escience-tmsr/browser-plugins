@@ -81,25 +81,28 @@ function isCaptureDownload(item) {
 
 // Record the outcome of a browser download of the captured PDF: saved, or interrupted
 // (cancelled by the user, or a network or disk error). Either way the capture ends.
-function processDownloadChange(delta) {
+// A download that started in a tab watched for a download by hand is recorded there
+// instead, even while a capture is armed.
+async function processDownloadChange(delta) {
   const state = delta.state?.current;
-  if (state !== "complete" && state !== "interrupted") return Promise.resolve();
+  if (state !== "complete" && state !== "interrupted") return;
 
-  return browser.downloads.search({ id: delta.id }).then(([item]) => {
-    if (!item || captureSession === null || !isCaptureDownload(item)) return;
-    const basename = item.filename.split(/[\\/]/).pop();
-    if (state === "complete") {
-      self.sendStatus(`✅ Saved PDF to ${item.filename}`);
-      self.recordDownload(self.STATUS_SUCCESS, basename);
-      downloadLog = downloadLog.concat(captureSession.doi, ",", item.filename, "\n");
-    } else {
-      // Firefox sends the reason with the change; the download item may not have it.
-      const reason = `Download interrupted (${delta.error?.current || item.error || "unknown reason"})`;
-      self.recordDownload(`${self.STATUS_ACCESS_ERROR}: ${reason}`, basename);
-      self.failCapture(reason);
-    }
-    captureSession = null;
-  });
+  const [item] = await browser.downloads.search({ id: delta.id });
+  if (!item) return;
+  // Firefox sends the reason with the change; the download item may not have it.
+  const reason = `Download interrupted (${delta.error?.current || item.error || "unknown reason"})`;
+  if (await self.recordAssistedDownload(item, state, reason)) return;
+  if (captureSession === null || !isCaptureDownload(item)) return;
+  const basename = fileNameOfPath(item.filename);
+  if (state === "complete") {
+    self.sendStatus(`✅ Saved PDF to ${item.filename}`);
+    self.recordDownload(self.STATUS_SUCCESS, basename);
+    downloadLog = downloadLog.concat(captureSession.doi, ",", item.filename, "\n");
+  } else {
+    self.recordDownload(`${self.STATUS_ACCESS_ERROR}: ${reason}`, basename);
+    self.failCapture(reason);
+  }
+  captureSession = null;
 }
 
 
@@ -274,26 +277,41 @@ function recordRobotsBlock(jobDoi, blockedUrl, blockReason, requestedByPage) {
 
 // Tabs opened from the progress table, watched for a PDF the user downloads by hand (see
 // docs/assisted_download_plan.md, section 3). Kept in browser.storage.local, like the
-// job, so they survive the background page being unloaded, as
+// job, so they survive the extension being reloaded (tab numbers stay the same until
+// Firefox restarts), as
 // { [tabId]: { doi, clickedPageCounter, manualPageLabel, clickedUrl, pdfResponses } }.
 const ASSISTED_TABS_KEY = "assistedTabs";
+// Downloads that started in a watched tab, until they end (see attributeAssistedDownload),
+// as { [downloadId]: { doi, clickedPageCounter, manualPageLabel, clickedUrl,
+// expectedFileNames } }.
+const ASSISTED_DOWNLOADS_KEY = "assistedDownloads";
 // Added to the clicked row's page number to number the row of a manual take-over.
 const MANUAL_PAGE_SUFFIX = " (by hand)";
 
-// Changes to the watched tabs, one after the other: each reads the stored tabs and writes
-// them back, and two at the same time would lose one of the changes.
-let assistedTabsUpdate = Promise.resolve();
+// Changes to the stored watched tabs and downloads, one after the other: each reads a
+// stored object and writes it back, and two at the same time would lose one change.
+let assistedStorageUpdate = Promise.resolve();
 
-function updateAssistedTabs(changeAssistedTabs) {
-  assistedTabsUpdate = assistedTabsUpdate.then(async () => {
-    const { [ASSISTED_TABS_KEY]: storedTabs } = await browser.storage.local.get(ASSISTED_TABS_KEY);
-    const assistedTabs = storedTabs || {};
-    if (changeAssistedTabs(assistedTabs) === false) return;
-    await browser.storage.local.set({ [ASSISTED_TABS_KEY]: assistedTabs });
+// Apply changeStoredObject to the object stored under storageKey; it returns false when
+// it changed nothing, so nothing needs to be written.
+function updateAssistedStorage(storageKey, changeStoredObject) {
+  assistedStorageUpdate = assistedStorageUpdate.then(async () => {
+    const { [storageKey]: storedObject } = await browser.storage.local.get(storageKey);
+    const assistedObject = storedObject || {};
+    if (changeStoredObject(assistedObject) === false) return;
+    await browser.storage.local.set({ [storageKey]: assistedObject });
   }).catch((updateError) => {
     self.sendStatus(`Could not update the watched tabs: ${updateError.message}`, isError = true);
   });
-  return assistedTabsUpdate;
+  return assistedStorageUpdate;
+}
+
+function updateAssistedTabs(changeAssistedTabs) {
+  return updateAssistedStorage(ASSISTED_TABS_KEY, changeAssistedTabs);
+}
+
+function updateAssistedDownloads(changeAssistedDownloads) {
+  return updateAssistedStorage(ASSISTED_DOWNLOADS_KEY, changeAssistedDownloads);
 }
 
 // Watch a tab the status tab opened for an address in the row (doi, pageCounter).
@@ -328,13 +346,149 @@ function forgetAssistedTab(closedTabId) {
   });
 }
 
-// runtime.onStartup: Firefox numbers tabs anew after a restart, so the stored tabs could
-// match unrelated tabs.
+// runtime.onStartup: Firefox numbers tabs and downloads anew after a restart, so the
+// stored ones could match unrelated tabs and downloads.
 function clearAssistedTabs() {
-  return updateAssistedTabs((assistedTabs) => {
-    if (Object.keys(assistedTabs).length === 0) return false;
-    for (const tabId of Object.keys(assistedTabs)) delete assistedTabs[tabId];
+  const clearStoredObject = (storedObject) => {
+    if (Object.keys(storedObject).length === 0) return false;
+    for (const storedKey of Object.keys(storedObject)) delete storedObject[storedKey];
+  };
+  updateAssistedDownloads(clearStoredObject);
+  return updateAssistedTabs(clearStoredObject);
+}
+
+// Status texts of a manual take-over, after SUCCESS, PENDING or ACCESS_ERROR (see
+// docs/assisted_download_plan.md, section 1).
+const OPENED_BY_HAND = "opened by hand";
+const VIEWED_BY_HAND = "viewed by hand";
+const VIEWED_NOT_DOWNLOADED = "viewed, not downloaded yet";
+const DOWNLOADED_BY_HAND = "downloaded by hand";
+// Firefox's own PDF viewer saves a PDF from an address starting with this, without a
+// referrer, so such a download cannot be matched by its address (plan, section 2).
+const PDF_VIEWER_DOWNLOAD_PREFIX = "blob:resource://pdf.js/";
+// The kinds of requests that can show a PDF: in a tab, or inside a page.
+const PDF_RESPONSE_TYPES = new Set(["main_frame", "sub_frame", "object"]);
+
+function fileNameOfPath(filePath) {
+  return filePath.split(/[\\/]/).pop();
+}
+
+// The name Firefox gives a PDF it saves: the file name in the response's
+// Content-Disposition header (encoded as filename*=UTF-8''... or plain), or else the last
+// part of the address.
+function pdfResponseFileName(responseDetails) {
+  const headers = responseDetails.responseHeaders || [];
+  const contentDisposition = headers.find((header) => header.name.toLowerCase() === "content-disposition")?.value || "";
+  const encodedName = contentDisposition.match(/filename\*\s*=\s*[^']*'[^']*'([^;]+)/i);
+  const plainName = contentDisposition.match(/filename\s*=\s*(?:"([^"]*)"|([^;]+))/i);
+  const addressPath = responseDetails.url.split(/[?#]/)[0];
+  const nameText = encodedName ? encodedName[1] : plainName ? (plainName[1] ?? plainName[2]) : fileNameOfPath(addressPath);
+  try {
+    return decodeURIComponent(nameText.trim());
+  } catch (_) {
+    return nameText.trim();
+  }
+}
+
+// Firefox adds " (1)", " (2)", ... to the name of a file that exists already.
+function withoutDuplicateNumber(fileName) {
+  return fileName.replace(/\s?\(\d+\)(?=\.[^.]*$|$)/, "");
+}
+
+// Create the row of a manual take-over if it does not exist yet (plan, section 1). When
+// the clicked row's publisher page was accessible, its publisher page cells are copied,
+// and the manual part starts with the capture; otherwise it starts with the page itself.
+function ensureManualRow(watchedEntry) {
+  const { doi, clickedPageCounter, manualPageLabel, clickedUrl } = watchedEntry;
+  if (self.recordedRow(doi, manualPageLabel)?.pageStatus) return;
+  const clickedRow = self.recordedRow(doi, clickedPageCounter);
+  if (clickedRow?.pageStatus?.startsWith(self.STATUS_SUCCESS)) {
+    self.recordPublisherPageAccess(doi, manualPageLabel, clickedRow.pageStatus, clickedRow.pageResult);
+  } else {
+    self.recordPublisherPageAccess(doi, manualPageLabel, `${self.STATUS_SUCCESS}: ${OPENED_BY_HAND}`, clickedUrl);
+  }
+}
+
+// onHeadersReceived, for every response: a PDF in a watched tab is remembered, to match
+// its download later, and, unless the website forces a download, recorded as viewed in
+// the manual row (plan, section 3). A row whose PDF was already saved is left as it is.
+async function rememberAssistedPdfResponse(responseDetails) {
+  if (!PDF_RESPONSE_TYPES.has(responseDetails.type) || !retrievingPdfFile(responseDetails)) return;
+  const pdfResponse = { pdfUrl: responseDetails.url, pdfFileName: pdfResponseFileName(responseDetails) };
+  let watchedEntry = null;
+  await updateAssistedTabs((assistedTabs) => {
+    watchedEntry = assistedTabs[responseDetails.tabId] || null;
+    if (!watchedEntry) return false;
+    watchedEntry.pdfResponses.push(pdfResponse);
   });
+  if (!watchedEntry || retrievingAttachment(responseDetails)) return;
+  const { doi, manualPageLabel } = watchedEntry;
+  if (self.recordedRow(doi, manualPageLabel)?.downloadStatus === `${self.STATUS_SUCCESS}: ${DOWNLOADED_BY_HAND}`) return;
+  ensureManualRow(watchedEntry);
+  self.recordPdfCapture(doi, manualPageLabel, `${self.STATUS_SUCCESS}: ${VIEWED_BY_HAND}`, pdfResponse.pdfUrl);
+  self.recordPdfDownload(doi, manualPageLabel, `${self.STATUS_PENDING}: ${VIEWED_NOT_DOWNLOADED}`, null);
+  self.sendStatus(`📄 PDF shown in tab ${responseDetails.tabId} for ${doi}`);
+  self.sendProgressUpdate();
+}
+
+// downloads.onCreated: decide which watched tab a download belongs to, while the tab it
+// was started from is still the active one (plan, section 3):
+// - a download of a PDF response of a watched tab belongs to that tab, as when a website
+//   forces a download;
+// - a download from Firefox's PDF viewer belongs to the active tab, if that is watched
+//   and has seen a PDF. Its file name is checked when the download ends, against the
+//   names of the PDFs the tab has seen.
+async function attributeAssistedDownload(downloadItem) {
+  let assistedTabs = {};
+  await updateAssistedTabs((storedTabs) => {
+    assistedTabs = storedTabs;
+    return false;
+  });
+  let watchedEntry = Object.values(assistedTabs)
+    .find((assistedEntry) => assistedEntry.pdfResponses.some((pdfResponse) => pdfResponse.pdfUrl === downloadItem.url));
+  let expectedFileNames = [];
+  if (!watchedEntry && downloadItem.url.startsWith(PDF_VIEWER_DOWNLOAD_PREFIX)) {
+    const [activeTab] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
+    const activeEntry = activeTab ? assistedTabs[activeTab.id] : undefined;
+    if (activeEntry?.pdfResponses.length) {
+      watchedEntry = activeEntry;
+      expectedFileNames = activeEntry.pdfResponses.map((pdfResponse) => pdfResponse.pdfFileName);
+    }
+  }
+  if (!watchedEntry) return;
+  const { doi, clickedPageCounter, manualPageLabel, clickedUrl } = watchedEntry;
+  return updateAssistedDownloads((assistedDownloads) => {
+    assistedDownloads[downloadItem.id] = { doi, clickedPageCounter, manualPageLabel, clickedUrl, expectedFileNames };
+  });
+}
+
+// When a download ends: record a download that started in a watched tab in the manual
+// row. Resolves to true when the download belonged to a watched tab, recorded or not,
+// so it is not taken for the job's capture.
+async function recordAssistedDownload(downloadItem, downloadState, interruptReason) {
+  let attributedDownload = null;
+  await updateAssistedDownloads((assistedDownloads) => {
+    attributedDownload = assistedDownloads[downloadItem.id] || null;
+    if (!attributedDownload) return false;
+    delete assistedDownloads[downloadItem.id];
+  });
+  if (!attributedDownload) return false;
+  const { doi, manualPageLabel, expectedFileNames } = attributedDownload;
+  const savedFileName = fileNameOfPath(downloadItem.filename);
+  if (downloadState === "complete" && expectedFileNames.length > 0
+      && !expectedFileNames.includes(withoutDuplicateNumber(savedFileName))) {
+    self.sendStatus(`Not recording ${savedFileName} for ${doi}: it is not named like a PDF shown in the watched tab`);
+    return true;
+  }
+  ensureManualRow(attributedDownload);
+  if (downloadState === "complete") {
+    self.recordPdfDownload(doi, manualPageLabel, `${self.STATUS_SUCCESS}: ${DOWNLOADED_BY_HAND}`, savedFileName);
+    self.sendStatus(`📥 PDF downloaded by hand for ${doi}: ${savedFileName}`);
+  } else {
+    self.recordPdfDownload(doi, manualPageLabel, `${self.STATUS_ACCESS_ERROR}: ${interruptReason}`, savedFileName);
+  }
+  self.sendProgressUpdate();
+  return true;
 }
 
 function looksPaywalledUrl(u) {
@@ -419,10 +573,16 @@ if (typeof module !== "undefined") {
                      processIncomingPdfData, recordCapture,
                      recordCaptureFailure, recordContentProgress, recordDownload, recordRobotsBlock, removeSlashes, retrievingAttachment,
                      retrievingPdfFile, sanitizeDOI, saveLog, seedPageLoadRow, sendProgressUpdate, startJob,
-                     storeDetailsInSessionData, watchAssistedTab, watchTabOpenedFromAssistedTab };
+                     storeDetailsInSessionData, watchAssistedTab, watchTabOpenedFromAssistedTab,
+                     DOWNLOADED_BY_HAND, OPENED_BY_HAND, PDF_VIEWER_DOWNLOAD_PREFIX, VIEWED_BY_HAND,
+                     VIEWED_NOT_DOWNLOADED, attributeAssistedDownload, pdfResponseFileName,
+                     recordAssistedDownload, rememberAssistedPdfResponse, withoutDuplicateNumber };
 }
 if (typeof self !== "undefined") {
   self.armCaptureAndNavigate = armCaptureAndNavigate;
+  self.attributeAssistedDownload = attributeAssistedDownload;
+  self.recordAssistedDownload = recordAssistedDownload;
+  self.rememberAssistedPdfResponse = rememberAssistedPdfResponse;
   self.armCaptureBase = armCaptureBase;
   self.armCaptureOnly = armCaptureOnly;
   self.checkRobotsBeforeRequest = checkRobotsBeforeRequest;

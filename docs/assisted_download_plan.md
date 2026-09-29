@@ -160,7 +160,8 @@ Where the design has to change for one of these, the results are added here.
   `{ type: "watch-assisted-tab", tabId, doi, pageCounter, clickedUrl }` to the
   background, `pageCounter` being the clicked row's page number.
 - The background keeps the watched tabs in `browser.storage.local` under
-  `assistedTabs`, as `{ [tabId]: { doi, manualPageLabel, clickedUrl, pdfResponses: [] } }`,
+  `assistedTabs`, as
+  `{ [tabId]: { doi, clickedPageCounter, manualPageLabel, clickedUrl, pdfResponses: [] } }`,
   with `manualPageLabel` the new row's page number, `` `${pageCounter} (by hand)` ``.
   They survive
   the background page being unloaded, like `job`. A tab opened from a watched tab
@@ -180,9 +181,9 @@ Where the design has to change for one of these, the results are added here.
 - The first time a watched tab records anything, the manual row is created with its
   publisher page cells (section 1): a copy of the clicked row's publisher page cells
   when their status is `SUCCESS`, and otherwise `recordPublisherPageAccess(doi,
-  manualPageLabel, "SUCCESS: opened by hand", clickedUrl)`. The copy needs a way to
-  read a row's cells from the recorder, such as `publisherPageCells(doi,
-  pageCounter)`, returning `{ pageStatus, pageResult }`. The progress recorder keys rows by `` `${doi}#${pageCounter}` `` and
+  manualPageLabel, "SUCCESS: opened by hand", clickedUrl)`. The copy reads the
+  clicked row (`clickedPageCounter`) with the recorder's `recordedRow(doi,
+  pageCounter)`, which returns a copy of a row's cells. The progress recorder keys rows by `` `${doi}#${pageCounter}` `` and
   prints the page number as text, so a label such as `1 (by hand)` works without
   changes to the recorder.
 - When a download starts (`downloads.onCreated`), decide which watched tab it
@@ -192,14 +193,17 @@ Where the design has to change for one of these, the results are added here.
   - a download from Firefox's PDF viewer, recognised by its address starting with
     `blob:resource://pdf.js/` (step 2, point 3): the tab that is active at that
     moment (`tabs.query({ active: true, lastFocusedWindow: true })`), if it is watched
-    and shows one of its `pdfResponses`. The user clicks the viewer's download button in
+    and has seen a PDF (implemented this way in step 4, so a PDF shown inside a
+    publisher's page, where the tab's address is not the PDF's, works too). The user clicks the viewer's download button in
     that tab, so it is the active one. As a check, the file name must equal the
     `filename` of that PDF response's `Content-Disposition`, or the last part of its
     address, apart from the " (1)"-style suffix Firefox adds to names that exist
     already; a mismatch is logged and not recorded.
   The decision has to be taken when the download starts, as the active tab may have
   changed by the time it ends. The watched tab's entry keeps each PDF response's
-  address and file name for this: `pdfResponses: [{ pdfUrl, pdfFileName }]`.
+  address and file name for this: `pdfResponses: [{ pdfUrl, pdfFileName }]`. The
+  downloads under way are stored like the watched tabs, under `assistedDownloads`,
+  and are forgotten with them when Firefox starts.
 - In `processDownloadChange`, which already sees every download ending: when no capture
   is armed, or the download is not the capture's, look up the watched tab remembered
   for the download's id. If there is one, record the download in the manual row with

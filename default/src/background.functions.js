@@ -96,7 +96,7 @@ async function processDownloadChange(delta) {
   const basename = fileNameOfPath(item.filename);
   if (state === "complete") {
     self.sendStatus(`✅ Saved PDF to ${item.filename}`);
-    self.recordDownload(self.STATUS_SUCCESS, basename);
+    self.recordDownload(self.STATUS_SUCCESS, basename, captureSession, item.filename);
     downloadLog = downloadLog.concat(captureSession.doi, ",", item.filename, "\n");
   } else {
     self.recordDownload(`${self.STATUS_ACCESS_ERROR}: ${reason}`, basename);
@@ -482,7 +482,8 @@ async function recordAssistedDownload(downloadItem, downloadState, interruptReas
   }
   ensureManualRow(attributedDownload);
   if (downloadState === "complete") {
-    self.recordPdfDownload(doi, manualPageLabel, `${self.STATUS_SUCCESS}: ${DOWNLOADED_BY_HAND}`, savedFileName);
+    self.recordPdfDownload(doi, manualPageLabel, `${self.STATUS_SUCCESS}: ${DOWNLOADED_BY_HAND}`, savedFileName,
+                           downloadItem.filename);
     self.sendStatus(`📥 PDF downloaded by hand for ${doi}: ${savedFileName}`);
   } else {
     self.recordPdfDownload(doi, manualPageLabel, `${self.STATUS_ACCESS_ERROR}: ${interruptReason}`, savedFileName);
@@ -511,8 +512,9 @@ function recordCapture(status, targetUrl, session = captureSession) {
   self.sendProgressUpdate();
 }
 
-function recordDownload(status, filename, session = captureSession) {
-  self.recordPdfDownload(session.doi, session.pageCounter, status, filename);
+// savedPath: the full path of a saved PDF, for the CSV of saved PDFs.
+function recordDownload(status, filename, session = captureSession, savedPath = null) {
+  self.recordPdfDownload(session.doi, session.pageCounter, status, filename, savedPath);
   self.sendProgressUpdate();
 }
 

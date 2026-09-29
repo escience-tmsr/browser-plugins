@@ -295,7 +295,7 @@ describe("processDownloadChange", () => {
   test("a completed download is recorded, logged, and ends the capture", async () => {
     await processDownloadChange(stateChange("complete"));
     expect(browser.downloads.search).toHaveBeenCalledWith({ id: DOWNLOAD_ID });
-    expect(self.recordDownload).toHaveBeenCalledWith(STATUS_SUCCESS, pdfFilename(DOI));
+    expect(self.recordDownload).toHaveBeenCalledWith(STATUS_SUCCESS, pdfFilename(DOI), expect.objectContaining({ doi: DOI }), SAVED_PATH);
     expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching(SAVED_PATH));
     expect(global.downloadLog).toBe(`${DOI},${SAVED_PATH}\n`);
     expect(global.captureSession).toBe(null);
@@ -786,6 +786,7 @@ describe("recording downloads by hand", () => {
       captureStatus: `${STATUS_SUCCESS}: ${VIEWED_BY_HAND}`,
       downloadStatus: `${STATUS_SUCCESS}: ${DOWNLOADED_BY_HAND}`, downloadResult: PDF_FILE_NAME,
     });
+    expect(manualRow().downloadPath).toBe(SAVED_PATH);
     expect(self.sendStatus).toHaveBeenCalledWith(`📥 PDF downloaded by hand for ${DOI}: ${PDF_FILE_NAME}`);
     expect(storedItems.assistedDownloads).toEqual({});
   });
@@ -1087,14 +1088,15 @@ describe("recording functions", () => {
   test("recordDownload records in the current session's row and pushes the table", () => {
     recordDownload(STATUS_SUCCESS, pdfFilename(session.doi));
     expect(self.recordPdfDownload).toHaveBeenCalledWith(
-      session.doi, session.pageCounter, STATUS_SUCCESS, pdfFilename(session.doi));
+      session.doi, session.pageCounter, STATUS_SUCCESS, pdfFilename(session.doi), null);
     expect(self.sendProgressUpdate).toHaveBeenCalledTimes(1);
   });
 
-  test("recordDownload can record in another session's row", () => {
-    recordDownload(STATUS_SUCCESS, pdfFilename(otherSession.doi), otherSession);
+  test("recordDownload can record in another session's row, with the saved PDF's full path", () => {
+    const savedPath = "/home/user/Downloads/" + pdfFilename(otherSession.doi);
+    recordDownload(STATUS_SUCCESS, pdfFilename(otherSession.doi), otherSession, savedPath);
     expect(self.recordPdfDownload).toHaveBeenCalledWith(
-      otherSession.doi, otherSession.pageCounter, STATUS_SUCCESS, pdfFilename(otherSession.doi));
+      otherSession.doi, otherSession.pageCounter, STATUS_SUCCESS, pdfFilename(otherSession.doi), savedPath);
   });
 
   test("recordCaptureFailure records the status with its reason and reports the failure", () => {

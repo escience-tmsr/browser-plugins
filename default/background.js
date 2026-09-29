@@ -59,6 +59,11 @@ browser.runtime.onMessage.addListener((msg, sender) => {
     return Promise.resolve({ html: self.toHtml() });
   }
 
+  if (msg.type === "get-progress-csv") {
+    // sent by the status tab's "Download CSV" button: do not report
+    return Promise.resolve({ csv: self.toCsv() });
+  }
+
   if (msg.type === "watch-assisted-tab") {
     // sent by the status tab when an address in the table is clicked
     return self.watchAssistedTab(msg.tabId, msg.doi, msg.pageCounter, msg.clickedUrl);

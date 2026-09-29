@@ -141,6 +141,36 @@ async function openAssistedTab(clickEvent) {
   }).catch(() => {});
 }
 
+// The "Download CSV" button in the Progress heading, and the file it saves.
+const CSV_BUTTON_ID = "progress-csv";
+const CSV_FILE_PREFIX = "doi-progress-";
+// How long the CSV's temporary address stays valid, for Firefox to save the file.
+const CSV_ADDRESS_LIFETIME_MS = 30000;
+
+// The CSV's file name, after the local date: doi-progress-2026-09-29.csv.
+function csvFileName(downloadDate) {
+  const dateParts = [downloadDate.getFullYear(), downloadDate.getMonth() + 1, downloadDate.getDate()];
+  return `${CSV_FILE_PREFIX}${dateParts.map((datePart) => String(datePart).padStart(2, "0")).join("-")}.csv`;
+}
+
+// "Download CSV": ask the background for the DOIs and their saved PDFs as CSV, and save
+// it through a download link, so Firefox saves it like any other download.
+async function downloadProgressCsv() {
+  const csvResponse = await browser.runtime.sendMessage({ type: "get-progress-csv" }).catch(() => null);
+  if (!csvResponse?.csv) {
+    appendLogLine("Could not get the progress table as CSV.");
+    return;
+  }
+  const csvAddress = URL.createObjectURL(new Blob([csvResponse.csv], { type: "text/csv" }));
+  const downloadLink = document.createElement("a");
+  downloadLink.href = csvAddress;
+  downloadLink.download = csvFileName(new Date());
+  document.body.appendChild(downloadLink);
+  downloadLink.click();
+  downloadLink.remove();
+  setTimeout(() => URL.revokeObjectURL(csvAddress), CSV_ADDRESS_LIFETIME_MS);
+}
+
 function handleStatusViewMessage(msg) {
   if (msg?.type === "progress-update") {
     replaceProgressTable(msg.html);
@@ -170,6 +200,7 @@ function initStatusView() {
     progressElement.addEventListener("click", openAssistedTab);
     progressElement.addEventListener("auxclick", openAssistedTab);
   }
+  document.getElementById(CSV_BUTTON_ID)?.addEventListener("click", downloadProgressCsv);
   browser.runtime.onMessage.addListener(handleStatusViewMessage);
   return requestCurrentProgress();
 }
@@ -189,6 +220,9 @@ if (typeof module !== "undefined") {
     appendLogLine,
     MIDDLE_MOUSE_BUTTON,
     openAssistedTab,
+    CSV_BUTTON_ID,
+    csvFileName,
+    downloadProgressCsv,
     handleStatusViewMessage,
     requestCurrentProgress,
     initStatusView,

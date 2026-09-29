@@ -306,6 +306,10 @@ ai_usage:
         background script that stays loaded (default/manifest.json), after
         the maintainer saw the progress table emptied between DOIs: Firefox
         unloaded the idle event page, and the table lived only in its memory.
+        A "Download CSV" button in the status tab saves the DOIs and the full
+        paths of their saved PDFs (default/src/progress.js,
+        default/src/status-view.js, default/status-view.html), requested by
+        the maintainer on 2026-09-29.
       ai_involvement: >-
         Requested by the maintainer on 2026-09-28 while testing the
         robots.txt steps; implemented by the agent. Tested by the agent with

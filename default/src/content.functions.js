@@ -129,7 +129,9 @@ async function maybeRunJob(myTabId) {
   return "finished job"
 }
 
-module.exports = { findElementByPhrase, maybeRunJob, performAction, recordProgress, sendStatus, };
+if (typeof module !== "undefined") {
+  module.exports = { findElementByPhrase, maybeRunJob, performAction, recordProgress, sendStatus, };
+}
 if (typeof self !== "undefined") {
   self.findElementByPhrase = findElementByPhrase;
   self.maybeRunJob = maybeRunJob;

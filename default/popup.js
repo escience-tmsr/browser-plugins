@@ -15,9 +15,13 @@ document.getElementById("startButton").addEventListener("click", () => {
     return;
   }
 
+  // Progress is shown in the status tab, so the popup can close once the job has
+  // started; it stays open to show an error.
   browser.runtime.sendMessage({
     type: "start-job",
     doi
+  }).then(() => {
+    window.close();
   }).catch(err => {
     sendStatus("Error starting job: " + err, isError = true);
   });
@@ -25,7 +29,9 @@ document.getElementById("startButton").addEventListener("click", () => {
 });
 
 document.getElementById("openStatusTable").addEventListener("click", () => {
-  openOrFocusStatusTab().catch(err => {
+  openOrFocusStatusTab().then(() => {
+    window.close();
+  }).catch(err => {
     sendStatus("Error opening status table: " + err, isError = true);
   });
 });

@@ -1,6 +1,6 @@
-const { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, armCaptureBase, failCapture, inRetrievePdfSession, looksPaywalledUrl, processIncomingPdfData, recordCapture, recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment, retrievingPdfFile, sanitizeDOI, seedPageLoadRow, sendProgressUpdate, startJob, storeDetailsInSessionData }  = require("../src/background.functions");
-const { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED } = require("../src/progress");
-const STATUS_CONSTANTS = { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED };
+const { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureBase, failCapture, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange, processIncomingPdfData, recordCapture, recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment, retrievingPdfFile, sanitizeDOI, seedPageLoadRow, sendProgressUpdate, startJob, storeDetailsInSessionData }  = require("../src/background.functions");
+const { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED, STATUS_PENDING } = require("../src/progress");
+const STATUS_CONSTANTS = { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED, STATUS_PENDING };
 
 // DOI used throughout these tests, and the doi.org address startJob opens for it.
 const DOI = "10.1234/doi";
@@ -172,6 +172,12 @@ describe("processIncomingPdfData", () => {
     expect(browser.downloads.download).not.toHaveBeenCalled();
   });
 
+  test("a PDF the browser downloads itself is not filtered", () => {
+    global.captureSession = { doi: DOI, pageCounter: 1, expectBrowserDownload: true };
+    processIncomingPdfData({ requestId: "req-2b" });
+    expect(browser.webRequest.filterResponseData).not.toHaveBeenCalled();
+  });
+
   test("seems redundant?", async () => {
     global.captureSession = {
       "doi": DOI,
@@ -204,12 +210,134 @@ describe("processIncomingPdfData", () => {
     expect(self.recordDownload).toHaveBeenCalledWith(
       `${STATUS_ACCESS_ERROR}: Saving PDF failed: ${SAVE_ERROR}`, pdfFilename(SAVE_SESSION.doi), SAVE_SESSION);
   });
+
+  test("a failed save ends the capture", async () => {
+    global.captureSession = { doi: DOI, pageCounter: 1, expectBrowserDownload: false };
+    global.URL = { createObjectURL: jest.fn(), revokeObjectURL: jest.fn() };
+    global.browser.downloads.download = jest.fn().mockRejectedValue(new Error("disk full"));
+    processIncomingPdfData({ requestId: "req-6" });
+    await fakeFilter.onstop();
+    expect(global.captureSession).toBe(null);
+  });
+
+  test("a response that breaks off is recorded as a failed download and ends the capture", () => {
+    const TRANSFER_SESSION = { doi: DOI, pageCounter: 2, expectBrowserDownload: false };
+    const TRANSFER_ERROR = "Channel redirected";
+    global.captureSession = TRANSFER_SESSION;
+    processIncomingPdfData({ requestId: "req-7" });
+    fakeFilter.error = TRANSFER_ERROR;
+    fakeFilter.onerror();
+    const reason = `PDF transfer stopped: ${TRANSFER_ERROR}`;
+    expect(self.recordDownload).toHaveBeenCalledWith(
+      `${STATUS_ACCESS_ERROR}: ${reason}`, pdfFilename(TRANSFER_SESSION.doi), TRANSFER_SESSION);
+    expect(self.failCapture).toHaveBeenCalledWith(reason);
+    expect(global.captureSession).toBe(null);
+  });
+
+  test("a response that breaks off after its capture ended reports nothing", () => {
+    global.captureSession = { doi: DOI, pageCounter: 1, expectBrowserDownload: false };
+    processIncomingPdfData({ requestId: "req-8" });
+    global.captureSession = null;  // e.g. already ended by a capture timeout
+    fakeFilter.onerror();
+    expect(self.recordDownload).not.toHaveBeenCalled();
+    expect(self.failCapture).not.toHaveBeenCalled();
+  });
+
+  test("a response that breaks off does not end a newer capture", () => {
+    global.captureSession = { doi: DOI, pageCounter: 1, expectBrowserDownload: false };
+    processIncomingPdfData({ requestId: "req-9" });
+    const newerSession = { doi: DOI, pageCounter: 2 };
+    global.captureSession = newerSession;
+    fakeFilter.onerror();
+    expect(global.captureSession).toBe(newerSession);
+    expect(self.recordDownload).not.toHaveBeenCalled();
+  });
+});
+
+describe("processDownloadChange", () => {
+  const SAVED_PATH = "/home/user/Downloads/" + pdfFilename(DOI);
+  const PDF_URL = "https://publisher.example/article.pdf";
+  const DOWNLOAD_ID = 42;
+  const CANCELLED = "USER_CANCELED";
+
+  function downloadItem(fields) {
+    return { id: DOWNLOAD_ID, mime: "application/pdf", filename: SAVED_PATH, url: PDF_URL, ...fields };
+  }
+
+  function stateChange(state) {
+    return { id: DOWNLOAD_ID, state: { current: state } };
+  }
+
+  beforeEach(() => {
+    global.self = {
+      ...STATUS_CONSTANTS,
+      failCapture: jest.fn(),
+      recordDownload: jest.fn(),
+      sendStatus: jest.fn(),
+    };
+    global.browser = { downloads: { search: jest.fn().mockResolvedValue([downloadItem()]) } };
+    global.captureSession = { doi: DOI, pageCounter: 1, lastMainUrl: PDF_URL };
+    global.downloadLog = "";
+  });
+
+  test("a completed download is recorded, logged, and ends the capture", async () => {
+    await processDownloadChange(stateChange("complete"));
+    expect(browser.downloads.search).toHaveBeenCalledWith({ id: DOWNLOAD_ID });
+    expect(self.recordDownload).toHaveBeenCalledWith(STATUS_SUCCESS, pdfFilename(DOI));
+    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching(SAVED_PATH));
+    expect(global.downloadLog).toBe(`${DOI},${SAVED_PATH}\n`);
+    expect(global.captureSession).toBe(null);
+  });
+
+  test("an interrupted download is recorded as failed with its reason, and ends the capture", async () => {
+    browser.downloads.search.mockResolvedValue([downloadItem({ error: CANCELLED })]);
+    await processDownloadChange(stateChange("interrupted"));
+    const reason = `Download interrupted (${CANCELLED})`;
+    expect(self.recordDownload).toHaveBeenCalledWith(`${STATUS_ACCESS_ERROR}: ${reason}`, pdfFilename(DOI));
+    expect(self.failCapture).toHaveBeenCalledWith(reason);
+    expect(global.downloadLog).toBe("");
+    expect(global.captureSession).toBe(null);
+  });
+
+  test("the reason is taken from the change when the download item has none", async () => {
+    await processDownloadChange({ ...stateChange("interrupted"), error: { current: CANCELLED } });
+    expect(self.failCapture).toHaveBeenCalledWith(`Download interrupted (${CANCELLED})`);
+  });
+
+  test("an interrupted download of the captured address counts even without a PDF type or name", async () => {
+    browser.downloads.search.mockResolvedValue([downloadItem({ mime: "", filename: "", error: CANCELLED })]);
+    await processDownloadChange(stateChange("interrupted"));
+    expect(self.failCapture).toHaveBeenCalledTimes(1);
+    expect(global.captureSession).toBe(null);
+  });
+
+  test("a download that is still running is ignored", async () => {
+    await processDownloadChange(stateChange("in_progress"));
+    await processDownloadChange({ id: DOWNLOAD_ID });
+    expect(browser.downloads.search).not.toHaveBeenCalled();
+  });
+
+  test("a download without an active capture is ignored", async () => {
+    global.captureSession = null;
+    await processDownloadChange(stateChange("complete"));
+    expect(self.recordDownload).not.toHaveBeenCalled();
+    expect(global.downloadLog).toBe("");
+  });
+
+  test("a download that is not the captured PDF is ignored", async () => {
+    browser.downloads.search.mockResolvedValue([
+      downloadItem({ mime: "text/csv", filename: "my_table.csv", url: "blob:other" })]);
+    await processDownloadChange(stateChange("complete"));
+    expect(self.recordDownload).not.toHaveBeenCalled();
+    expect(global.captureSession).not.toBe(null);
+  });
 });
 
 describe("startJob", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     global.self = {
+      openOrFocusStatusTab: jest.fn().mockResolvedValue({}),
       sanitizeDOI: (doi) => doi,
       seedPageLoadRow: jest.fn(),
       sendStatus: jest.fn(),
@@ -225,7 +353,22 @@ describe("startJob", () => {
     await startJob(DOI);
     const [ returnValue ] = global.browser.storage.local.set.mock.calls[0];
     expect(returnValue.job.url).toBe(DOI_URL);
-    expect(browser.tabs.create).toHaveBeenCalledWith({ url: DOI_URL });
+    expect(browser.tabs.create).toHaveBeenCalledWith({ url: DOI_URL, active: false });
+  });
+
+  test("opens the status tab and keeps it in view", async() => {
+    await startJob(DOI);
+    expect(self.openOrFocusStatusTab).toHaveBeenCalledTimes(1);
+    expect(browser.tabs.create).toHaveBeenCalledWith(expect.objectContaining({ active: false }));
+  });
+
+  test("still starts the job when the status tab cannot be opened", async() => {
+    self.openOrFocusStatusTab.mockRejectedValue(new Error("no tabs"));
+    await startJob(DOI);
+    await Promise.resolve();  // let the rejection handler run
+    expect(browser.tabs.create).toHaveBeenCalledWith({ url: DOI_URL, active: false });
+    expect(browser.storage.local.set).toHaveBeenCalledTimes(1);
+    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching("^Could not open status table"), true);
   });
 
   test("shows a placeholder row for the DOI page", async() => {
@@ -520,9 +663,10 @@ describe("page-load and link-search recording", () => {
     jest.useRealTimers();
   });
 
-  test("seedPageLoadRow shows page 1 as skipped until it is confirmed", () => {
+  test("seedPageLoadRow shows page 1 as pending until it is confirmed", () => {
     seedPageLoadRow(DOI, DOI_URL);
-    expect(self.recordPublisherPageAccess).toHaveBeenCalledWith(DOI, 1, STATUS_SKIPPED, DOI_URL);
+    expect(self.recordPublisherPageAccess).toHaveBeenCalledWith(
+      DOI, 1, `${STATUS_PENDING}: ${PAGE_LOAD_PENDING_REASON}`, DOI_URL);
     expect(self.sendProgressUpdate).toHaveBeenCalledTimes(1);
   });
 

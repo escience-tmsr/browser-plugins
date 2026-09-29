@@ -206,6 +206,23 @@ describe("toHtml", () => {
   });
 });
 
+describe("recordedRow", () => {
+  test("returns a copy of a recorded row, or null for a row that was not recorded", () => {
+    const recorder = new progress.ProgressRecorder();
+    recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, PAGE_URL);
+    const recordedCopy = recorder.recordedRow(DOI, 1);
+    expect(recordedCopy).toMatchObject({ doi: DOI, pageCounter: 1, pageStatus: SUCCESS, pageResult: PAGE_URL });
+    recordedCopy.pageStatus = NOT_FOUND;
+    expect(recorder.recordedRow(DOI, 1).pageStatus).toBe(SUCCESS);
+    expect(recorder.recordedRow(DOI, 2)).toBeNull();
+  });
+
+  test("the free function reads the singleton recorder", () => {
+    progress.recordPublisherPageAccess(DOI, 1, SUCCESS, PAGE_URL);
+    expect(progress.recordedRow(DOI, 1).pageResult).toBe(PAGE_URL);
+  });
+});
+
 describe("row attributes", () => {
   test("each row carries its DOI and page number, escaped", () => {
     const manualPageLabel = "1 (by hand)";

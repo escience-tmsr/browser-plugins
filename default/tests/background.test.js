@@ -1,5 +1,5 @@
-const { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureBase, checkRobotsBeforeRequest, clearAssistedTabs, failCapture, forgetAssistedTab, MANUAL_PAGE_SUFFIX, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange, processIncomingPdfData, recordCapture, recordCaptureFailure, recordContentProgress, recordDownload, recordRobotsBlock, removeSlashes, retrievingAttachment, retrievingPdfFile, sanitizeDOI, seedPageLoadRow, sendProgressUpdate, startJob, storeDetailsInSessionData, watchAssistedTab, watchTabOpenedFromAssistedTab }  = require("../src/background.functions");
-const { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED, STATUS_PENDING } = require("../src/progress");
+const { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureBase, attributeAssistedDownload, checkRobotsBeforeRequest, clearAssistedTabs, failCapture, forgetAssistedTab, MANUAL_PAGE_SUFFIX, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange, processIncomingPdfData, recordCapture, recordCaptureFailure, recordContentProgress, recordDownload, recordRobotsBlock, removeSlashes, retrievingAttachment, retrievingPdfFile, sanitizeDOI, seedPageLoadRow, sendProgressUpdate, startJob, storeDetailsInSessionData, watchAssistedTab, watchTabOpenedFromAssistedTab, DOWNLOADED_BY_HAND, OPENED_BY_HAND, PDF_VIEWER_DOWNLOAD_PREFIX, VIEWED_BY_HAND, VIEWED_NOT_DOWNLOADED, pdfResponseFileName, recordAssistedDownload, rememberAssistedPdfResponse, withoutDuplicateNumber }  = require("../src/background.functions");
+const { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED, STATUS_PENDING, ProgressRecorder } = require("../src/progress");
 const STATUS_CONSTANTS = { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED, STATUS_PENDING };
 
 // DOI used throughout these tests, and the doi.org address startJob opens for it.
@@ -275,12 +275,21 @@ describe("processDownloadChange", () => {
     global.self = {
       ...STATUS_CONSTANTS,
       failCapture: jest.fn(),
+      recordAssistedDownload: jest.fn().mockResolvedValue(false),
       recordDownload: jest.fn(),
       sendStatus: jest.fn(),
     };
     global.browser = { downloads: { search: jest.fn().mockResolvedValue([downloadItem()]) } };
     global.captureSession = { doi: DOI, pageCounter: 1, lastMainUrl: PDF_URL };
     global.downloadLog = "";
+  });
+
+  test("a download by hand in a watched tab is left to recordAssistedDownload, even during a capture", async () => {
+    self.recordAssistedDownload.mockResolvedValue(true);
+    await processDownloadChange(stateChange("complete"));
+    expect(self.recordAssistedDownload).toHaveBeenCalledWith(downloadItem(), "complete", expect.any(String));
+    expect(self.recordDownload).not.toHaveBeenCalled();
+    expect(global.captureSession).not.toBeNull();
   });
 
   test("a completed download is recorded, logged, and ends the capture", async () => {
@@ -639,6 +648,208 @@ describe("watched tabs for downloads by hand", () => {
     expect(self.sendStatus).toHaveBeenCalledWith("Could not update the watched tabs: storage full", true);
     await watchAssistedTab(OTHER_TAB_ID, DOI, CLICKED_PAGE_COUNTER, CLICKED_URL);
     expect(storedAssistedTabs()).toHaveProperty(String(OTHER_TAB_ID));
+  });
+});
+
+describe("pdfResponseFileName and withoutDuplicateNumber", () => {
+  const PDF_URL = "https://pdf.example.org/1/main%20text.pdf?token=1";
+
+  function pdfResponse(contentDisposition) {
+    const responseHeaders = [{ name: "Content-Type", value: "application/pdf" }];
+    if (contentDisposition) responseHeaders.push({ name: "Content-Disposition", value: contentDisposition });
+    return { url: PDF_URL, responseHeaders };
+  }
+
+  test.each([
+    ["a quoted file name", "inline; filename=\"1-s2.0-S0004-main.pdf\"", "1-s2.0-S0004-main.pdf"],
+    ["a plain file name", "inline; filename=1-s2.0-S0004-main.pdf", "1-s2.0-S0004-main.pdf"],
+    ["an encoded file name, preferred", "attachment; filename=\"a.pdf\"; filename*=UTF-8''%C3%A4rtikel.pdf", "ärtikel.pdf"],
+    ["no file name: the end of the address", undefined, "main text.pdf"],
+  ])("takes %s", (caseName, contentDisposition, expectedName) => {
+    expect(pdfResponseFileName(pdfResponse(contentDisposition))).toBe(expectedName);
+  });
+
+  test.each([["main (1).pdf", "main.pdf"], ["main(12).pdf", "main.pdf"], ["main.pdf", "main.pdf"]])(
+    "turns %s back into %s", (savedName, originalName) => {
+      expect(withoutDuplicateNumber(savedName)).toBe(originalName);
+    });
+});
+
+describe("recording downloads by hand", () => {
+  const WATCHED_TAB_ID = 12;
+  const PDF_TAB_ID = 13;
+  const OTHER_TAB_ID = 14;
+  const DOWNLOAD_ID = 23;
+  const CLICKED_PAGE_COUNTER = "1";
+  const MANUAL_PAGE_LABEL = CLICKED_PAGE_COUNTER + MANUAL_PAGE_SUFFIX;
+  const LOADED_PAGE_URL = "https://linkinghub.elsevier.com/retrieve/pii/S0000000000000000";
+  const CLICKED_URL = "https://www.sciencedirect.com/science/article/pii/S0000000000000000";
+  const PDF_URL = "https://pdf.sciencedirectassets.com/1/main.pdf?X-Amz-Expires=300";
+  const PDF_FILE_NAME = "1-s2.0-S0000000000000000-main.pdf";
+  const SAVED_PATH = "/home/user/Downloads/" + PDF_FILE_NAME;
+  const BLOCK_STATUS = `${STATUS_ACCESS_ERROR}: blocked by robots.txt`;
+  const VIEWER_DOWNLOAD_URL = PDF_VIEWER_DOWNLOAD_PREFIX + "beedb966";
+
+  let recorder;
+  let storedItems;
+
+  function copyOf(storedValue) {
+    return JSON.parse(JSON.stringify(storedValue));
+  }
+
+  function pdfResponse(tabId, contentDisposition = `inline; filename=${PDF_FILE_NAME}`) {
+    return {
+      tabId, type: "main_frame", url: PDF_URL,
+      responseHeaders: [
+        { name: "Content-Type", value: "application/pdf" },
+        { name: "Content-Disposition", value: contentDisposition },
+      ],
+    };
+  }
+
+  function downloadItem(downloadUrl, savedPath = SAVED_PATH) {
+    return { id: DOWNLOAD_ID, url: downloadUrl, filename: savedPath, mime: "" };
+  }
+
+  function manualRow() {
+    return recorder.recordedRow(DOI, MANUAL_PAGE_LABEL);
+  }
+
+  beforeEach(async () => {
+    storedItems = {};
+    recorder = new ProgressRecorder();
+    global.self = {
+      ...STATUS_CONSTANTS,
+      recordedRow: (doi, pageCounter) => recorder.recordedRow(doi, pageCounter),
+      recordPublisherPageAccess: (...cellValues) => recorder.recordPublisherPageAccess(...cellValues),
+      recordPdfCapture: (...cellValues) => recorder.recordPdfCapture(...cellValues),
+      recordPdfDownload: (...cellValues) => recorder.recordPdfDownload(...cellValues),
+      sendProgressUpdate: jest.fn(),
+      sendStatus: jest.fn(),
+    };
+    global.browser = {
+      storage: {
+        local: {
+          get: jest.fn(async (storageKey) => (storageKey in storedItems ? { [storageKey]: copyOf(storedItems[storageKey]) } : {})),
+          set: jest.fn(async (newItems) => { Object.assign(storedItems, copyOf(newItems)); }),
+        },
+      },
+      tabs: { query: jest.fn().mockResolvedValue([{ id: PDF_TAB_ID, url: PDF_URL }]) },
+    };
+    // The row of the example in the plan: the page loaded, the move to ScienceDirect was blocked.
+    recorder.recordPublisherPageAccess(DOI, 1, STATUS_SUCCESS, LOADED_PAGE_URL);
+    recorder.recordPdfLinkFound(DOI, 1, STATUS_NOT_FOUND, null);
+    recorder.recordPdfCapture(DOI, 1, BLOCK_STATUS, CLICKED_URL);
+    await watchAssistedTab(WATCHED_TAB_ID, DOI, CLICKED_PAGE_COUNTER, CLICKED_URL);
+    await watchTabOpenedFromAssistedTab({ id: PDF_TAB_ID, openerTabId: WATCHED_TAB_ID });
+  });
+
+  test("a PDF shown in a watched tab starts the manual row, copying an accessible publisher page", async () => {
+    await rememberAssistedPdfResponse(pdfResponse(PDF_TAB_ID));
+    expect(manualRow()).toMatchObject({
+      pageStatus: STATUS_SUCCESS, pageResult: LOADED_PAGE_URL, linkStatus: null,
+      captureStatus: `${STATUS_SUCCESS}: ${VIEWED_BY_HAND}`, captureResult: PDF_URL,
+      downloadStatus: `${STATUS_PENDING}: ${VIEWED_NOT_DOWNLOADED}`, downloadResult: null,
+    });
+    expect(recorder.recordedRow(DOI, 1).captureStatus).toBe(BLOCK_STATUS);
+    expect(storedItems.assistedTabs[PDF_TAB_ID].pdfResponses).toEqual([{ pdfUrl: PDF_URL, pdfFileName: PDF_FILE_NAME }]);
+    expect(self.sendProgressUpdate).toHaveBeenCalled();
+  });
+
+  test("the manual row starts with the page itself when the clicked row's page was not accessible", async () => {
+    recorder.recordPublisherPageAccess(DOI, 1, BLOCK_STATUS, CLICKED_URL);
+    await rememberAssistedPdfResponse(pdfResponse(PDF_TAB_ID));
+    expect(manualRow()).toMatchObject({ pageStatus: `${STATUS_SUCCESS}: ${OPENED_BY_HAND}`, pageResult: CLICKED_URL });
+  });
+
+  test("a PDF the website forces to download is remembered, but not shown as viewed", async () => {
+    await rememberAssistedPdfResponse(pdfResponse(PDF_TAB_ID, `attachment; filename=${PDF_FILE_NAME}`));
+    expect(storedItems.assistedTabs[PDF_TAB_ID].pdfResponses).toHaveLength(1);
+    expect(manualRow()).toBeNull();
+  });
+
+  test.each([
+    ["in a tab that is not watched", { ...pdfResponse(OTHER_TAB_ID) }],
+    ["that is not a PDF", { ...pdfResponse(PDF_TAB_ID), responseHeaders: [{ name: "Content-Type", value: "text/html" }] }],
+    ["that loads no page or frame", { ...pdfResponse(PDF_TAB_ID), type: "xmlhttprequest" }],
+  ])("a response %s is ignored", async (caseName, responseDetails) => {
+    await rememberAssistedPdfResponse(responseDetails);
+    expect(storedItems.assistedTabs[PDF_TAB_ID].pdfResponses).toEqual([]);
+    expect(manualRow()).toBeNull();
+  });
+
+  test("a PDF saved from Firefox's viewer is recorded in the manual row", async () => {
+    await rememberAssistedPdfResponse(pdfResponse(PDF_TAB_ID));
+    await attributeAssistedDownload(downloadItem(VIEWER_DOWNLOAD_URL));
+    await expect(recordAssistedDownload(downloadItem(VIEWER_DOWNLOAD_URL), "complete", "")).resolves.toBe(true);
+    expect(manualRow()).toMatchObject({
+      captureStatus: `${STATUS_SUCCESS}: ${VIEWED_BY_HAND}`,
+      downloadStatus: `${STATUS_SUCCESS}: ${DOWNLOADED_BY_HAND}`, downloadResult: PDF_FILE_NAME,
+    });
+    expect(self.sendStatus).toHaveBeenCalledWith(`📥 PDF downloaded by hand for ${DOI}: ${PDF_FILE_NAME}`);
+    expect(storedItems.assistedDownloads).toEqual({});
+  });
+
+  test("a PDF saved again under a numbered name is recorded too", async () => {
+    const numberedPath = SAVED_PATH.replace(".pdf", "(1).pdf");
+    await rememberAssistedPdfResponse(pdfResponse(PDF_TAB_ID));
+    await attributeAssistedDownload(downloadItem(VIEWER_DOWNLOAD_URL, numberedPath));
+    await recordAssistedDownload(downloadItem(VIEWER_DOWNLOAD_URL, numberedPath), "complete", "");
+    expect(manualRow().downloadResult).toBe("1-s2.0-S0000000000000000-main(1).pdf");
+  });
+
+  test("a file from the viewer with another name is not recorded, but not taken for a capture either", async () => {
+    const otherPath = "/home/user/Downloads/other.pdf";
+    await rememberAssistedPdfResponse(pdfResponse(PDF_TAB_ID));
+    await attributeAssistedDownload(downloadItem(VIEWER_DOWNLOAD_URL, otherPath));
+    await expect(recordAssistedDownload(downloadItem(VIEWER_DOWNLOAD_URL, otherPath), "complete", "")).resolves.toBe(true);
+    expect(manualRow().downloadStatus).toBe(`${STATUS_PENDING}: ${VIEWED_NOT_DOWNLOADED}`);
+    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching("^Not recording other.pdf"));
+  });
+
+  test("a download from the viewer in a tab that is not watched is not recorded", async () => {
+    browser.tabs.query.mockResolvedValue([{ id: OTHER_TAB_ID, url: PDF_URL }]);
+    await rememberAssistedPdfResponse(pdfResponse(PDF_TAB_ID));
+    await attributeAssistedDownload(downloadItem(VIEWER_DOWNLOAD_URL));
+    await expect(recordAssistedDownload(downloadItem(VIEWER_DOWNLOAD_URL), "complete", "")).resolves.toBe(false);
+  });
+
+  test("a download the website forces is matched by its address, and starts the manual row", async () => {
+    await rememberAssistedPdfResponse(pdfResponse(PDF_TAB_ID, `attachment; filename=${PDF_FILE_NAME}`));
+    await attributeAssistedDownload(downloadItem(PDF_URL));
+    await recordAssistedDownload(downloadItem(PDF_URL), "complete", "");
+    expect(manualRow()).toMatchObject({
+      pageStatus: STATUS_SUCCESS, captureStatus: null,
+      downloadStatus: `${STATUS_SUCCESS}: ${DOWNLOADED_BY_HAND}`, downloadResult: PDF_FILE_NAME,
+    });
+  });
+
+  test("an interrupted download is recorded as failed with its reason", async () => {
+    const interruptReason = "Download interrupted (USER_CANCELED)";
+    await rememberAssistedPdfResponse(pdfResponse(PDF_TAB_ID));
+    await attributeAssistedDownload(downloadItem(VIEWER_DOWNLOAD_URL));
+    await recordAssistedDownload(downloadItem(VIEWER_DOWNLOAD_URL), "interrupted", interruptReason);
+    expect(manualRow().downloadStatus).toBe(`${STATUS_ACCESS_ERROR}: ${interruptReason}`);
+  });
+
+  test("viewing the PDF again after saving it leaves the manual row as it is", async () => {
+    await rememberAssistedPdfResponse(pdfResponse(PDF_TAB_ID));
+    await attributeAssistedDownload(downloadItem(VIEWER_DOWNLOAD_URL));
+    await recordAssistedDownload(downloadItem(VIEWER_DOWNLOAD_URL), "complete", "");
+    await rememberAssistedPdfResponse(pdfResponse(PDF_TAB_ID));
+    expect(manualRow().downloadStatus).toBe(`${STATUS_SUCCESS}: ${DOWNLOADED_BY_HAND}`);
+  });
+
+  test("a download that did not start in a watched tab is left to the capture", async () => {
+    await expect(recordAssistedDownload(downloadItem(PDF_URL), "complete", "")).resolves.toBe(false);
+  });
+
+  test("starting Firefox also forgets the downloads under way", async () => {
+    await rememberAssistedPdfResponse(pdfResponse(PDF_TAB_ID));
+    await attributeAssistedDownload(downloadItem(VIEWER_DOWNLOAD_URL));
+    await clearAssistedTabs();
+    expect(storedItems.assistedDownloads).toEqual({});
+    expect(storedItems.assistedTabs).toEqual({});
   });
 });
 

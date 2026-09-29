@@ -56,6 +56,18 @@ Websites state in their [robots.txt](https://www.rfc-editor.org/rfc/rfc9309) fil
 
 When a website's robots.txt cannot be fetched because of a server error (HTTP status 500-599 or 429), a network error or a timeout of 10 seconds, the extension does not visit the website either, with the reason `robots.txt unreachable`. When the website has no robots.txt (HTTP status 400-499 other than 429), all its pages may be visited. The extension remembers each website's robots.txt for 24 hours, or for 10 minutes after a failed attempt. Only the pages the tab loads are checked, not the images and scripts that pages use, and pages in other tabs are not checked.
 
+### Downloading by hand
+
+When the extension cannot get a PDF itself, the table often shows where it can be found, for example a publisher's page that robots.txt kept the extension from visiting. Clicking an address in the table opens it in a new tab, which the extension watches for the rest of the process, together with the tabs opened from it (such as a publisher's "View PDF" tab). The extension does not search, click or load anything in those tabs: every step there is the user's own, so robots.txt does not apply.
+
+As soon as a PDF appears in a watched tab, the table gets a new row for the DOI, numbered after the clicked row, for example `1 (by hand)`, so the extension's own attempt stays visible above it:
+
+* *publisher page*: copied from the clicked row when that page was accessible; otherwise `SUCCESS: opened by hand` with the clicked address;
+* *pdf capture*: `SUCCESS: viewed by hand` with the PDF's address, when Firefox shows the PDF;
+* *pdf download*: `PENDING: viewed, not downloaded yet` while the PDF is only shown, and `SUCCESS: downloaded by hand` with the file name once it is saved, also logged as `📥 PDF downloaded by hand for <DOI>: <file name>`. A cancelled download is shown as `ACCESS_ERROR` with the reason.
+
+The file keeps the name the website gives it, as Firefox does not let extensions rename downloads they did not start. A PDF saved from Firefox's PDF viewer is recognised by the tab that is in front when saving starts, and only recorded when its name is that of a PDF shown in the watched tab. The extension keeps only the addresses and names of the PDFs in the watched tabs, and forgets a tab when it is closed and all of them when Firefox starts.
+
 ### Known limitations
 
 * One DOI is processed at a time. Starting a new DOI while another is still being processed stops the first one.
@@ -63,6 +75,7 @@ When a website's robots.txt cannot be fetched because of a server error (HTTP st
 * When the same DOI is processed twice, the second run overwrites the first run's table cells only where it records something new.
 * Firefox may open a saved PDF in a new tab (setting: Settings, Applications, Portable Document Format), which moves the status tab out of view.
 * After a DOI has been processed, pages opened in its tab are still checked against robots.txt, until the next DOI is processed.
+* Downloading by hand was tested with ScienceDirect only; publishers that show a PDF in their own viewer, or save it themselves, may not be recognised. A PDF saved from Firefox's viewer under another name (in a "Save as" dialog) is not recorded.
 
 ## Evaluation
 

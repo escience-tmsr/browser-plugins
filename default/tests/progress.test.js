@@ -291,3 +291,52 @@ describe("result links", () => {
     expect(recorder.toHtml()).toContain(SCRIPT_URL);
   });
 });
+
+describe("toCsv", () => {
+  const OTHER_DOI = "10.2000/other";
+  const THIRD_DOI = "10.3000/third";
+  const SAVED_PATH = "/home/user/Downloads/" + FILENAME;
+  const HAND_SAVED_PATH = "/home/user/Downloads/Economic Inquiry - 2011, \"NASTINESS\".pdf";
+  const HEADER_LINE = '"DOI","pdf download result (file)"';
+
+  function csvLines(recorder) {
+    const csvText = recorder.toCsv();
+    expect(csvText.endsWith("\r\n")).toBe(true);
+    return csvText.split("\r\n").slice(0, -1);
+  }
+
+  test("lists each DOI once, with the full path of its saved PDF, or an empty path", () => {
+    const recorder = new progress.ProgressRecorder();
+    recorder.recordPublisherPageAccess(DOI, 1, SUCCESS, PAGE_URL);
+    recorder.recordPdfDownload(DOI, 2, SUCCESS, FILENAME, SAVED_PATH);
+    recorder.recordPublisherPageAccess(OTHER_DOI, 1, `${ACCESS_ERROR}: blocked by robots.txt`, PAGE_URL);
+    expect(csvLines(recorder)).toEqual([HEADER_LINE, `"${DOI}","${SAVED_PATH}"`, `"${OTHER_DOI}",""`]);
+  });
+
+  test("counts only saved PDFs, including ones saved by hand", () => {
+    const recorder = new progress.ProgressRecorder();
+    recorder.recordPdfDownload(DOI, 1, `${ACCESS_ERROR}: Download interrupted (USER_CANCELED)`, FILENAME, SAVED_PATH);
+    recorder.recordPdfDownload(OTHER_DOI, "1 (by hand)", `${PENDING}: viewed, not downloaded yet`, null);
+    recorder.recordPdfDownload(THIRD_DOI, "1 (by hand)", `${SUCCESS}: downloaded by hand`, FILENAME, SAVED_PATH);
+    expect(csvLines(recorder)).toEqual(
+      [HEADER_LINE, `"${DOI}",""`, `"${OTHER_DOI}",""`, `"${THIRD_DOI}","${SAVED_PATH}"`]);
+  });
+
+  test("gives a DOI a line for each different saved PDF, but one for the same PDF saved twice", () => {
+    const recorder = new progress.ProgressRecorder();
+    recorder.recordPdfDownload(DOI, 1, SUCCESS, FILENAME, SAVED_PATH);
+    recorder.recordPdfDownload(DOI, 2, SUCCESS, FILENAME, SAVED_PATH);
+    recorder.recordPdfDownload(DOI, "1 (by hand)", `${SUCCESS}: downloaded by hand`, FILENAME, HAND_SAVED_PATH);
+    expect(csvLines(recorder)).toHaveLength(3);
+    expect(csvLines(recorder)[2]).toBe(`"${DOI}","/home/user/Downloads/Economic Inquiry - 2011, ""NASTINESS"".pdf"`);
+  });
+
+  test("has only the header when nothing was recorded", () => {
+    expect(csvLines(new progress.ProgressRecorder())).toEqual([HEADER_LINE]);
+  });
+
+  test("the free function renders the singleton recorder", () => {
+    progress.recordPdfDownload(DOI, 1, SUCCESS, FILENAME, SAVED_PATH);
+    expect(progress.toCsv()).toContain(SAVED_PATH);
+  });
+});

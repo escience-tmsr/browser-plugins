@@ -23,7 +23,7 @@ After these steps, the extension can be used for accessing paper PDFs via their 
 1. Access the extension by clicking on the jigsaw puzzle piece logo in the top right of the browser window: ![](../images/puzzle_piece.png "")
 2. A popup window appears, open the extension by clicking on its name: `Default extension`
 3. Fill in a DOI under `DOI` and click the `Process DOI` button, or press Enter. Here is an example DOI from the open access journal [JAIR](https://jair.org): 10.1613/jair.49
-4. There is an option to save a list of successful downloads of a session by clicking the `Save log` button in the extension, left of the `Process DOI` button. The list will be saved in the file `my_table.csv` in the user's Downloads directory.
+4. A list of the processed DOIs and the full paths of their saved PDFs can be saved as a CSV file with the `Download CSV` button in the status tab (see "Status table" below).
 
 The extension will open the main web page associated with DOI, look for a button labeled PDF or Download on the page and try to download the PDF linked from the page. If successful, the PDF will be stored in the `Downloads` directory of the browser user with the DOI as name (slashes replaced by underscores). When downloading fails, an error message will be displayed. 
 
@@ -40,6 +40,7 @@ The status tab contains:
   * *pdf download*: was the PDF saved (result: the file name)? A download that is cancelled or breaks off is shown as `ACCESS_ERROR` with the reason.
 
   The status is `SUCCESS` (green), `NOT_FOUND` or `ACCESS_ERROR` (red, followed by the reason), `SKIPPED` (gray, for a link that led to another web page instead of a PDF) or `PENDING` (light blue, still waiting). A new row first appears as `PENDING: waiting for the page to load` while the DOI's page is loading; if the page has not loaded after 30 seconds, it is marked `ACCESS_ERROR: page did not load`. The web addresses in the table are links, which open in a new tab. Addresses are shown without their query string (the part after `?`, shown as `?…`), which can make them thousands of characters long; the link, and its tooltip, keep the complete address.
+  The `Download CSV` button next to the heading saves the DOIs of the table and the full paths of their saved PDFs as a CSV file, `doi-progress-<date>.csv`, in the browser's download directory. It has one line per DOI, with an empty path when no PDF was saved; a DOI with more than one different saved PDF (for example one saved by the extension and one by hand) gets a line for each.
 * **A log** with the status messages the popup shows, one per line, for as long as the status tab is open.
 
 The table and the log each take up half of the status tab and scroll separately. Each keeps its newest entries at the bottom in view; after scrolling up to read older entries, the view stays put until it is scrolled back to the bottom. The headings show the number of table rows and log lines, a shadow under a heading shows that there are entries above the visible part, and a button such as "▼ 3 new lines" shows that entries arrived below it while scrolled up; clicking it jumps back to the bottom.
@@ -79,7 +80,11 @@ The file keeps the name the website gives it, as Firefox does not let extensions
 
 ## Evaluation
 
-The extension was compared to [Zotero](https://www.zotero.org/) (version 8.0.4) and [UnpaywallPDFDownloader](https://github.com/lixuliu/UnpaywallPDFDownloader) with respect to retrieving a PDF provided a DOI for fourteen DOIs representing papers from different publishers (test date 20260323). Zotero found six PDFs (43%) via the "Find Full Text" menu option while the extension was able to retrieve seven PDFs (50%). The only difference between the two methods involved Zotero being identified as a robot by the target website and successively being refused access to the PDF file. The test did not involve logging in to websites so PDFs behind paywalls were inaccessible to both approaches. The combination of five plugins of the doi-downloader outperformed the two approaches with nine successful downloads (64%). UnpaywallPDFDownloader only retrieved four PDFs (29%). This test predates the robots.txt check, which stops the extension from retrieving the ScienceDirect PDF (10.1016/j.nlp.2026.100202): the robots.txt files of www.sciencedirect.com and pdf.sciencedirectassets.com disallow all pages for robots.
+The extension was compared to [Zotero](https://www.zotero.org/) (version 8.0.4) and [UnpaywallPDFDownloader](https://github.com/lixuliu/UnpaywallPDFDownloader) with respect to retrieving a PDF provided a DOI for fourteen DOIs representing papers from different publishers (test date 20260323). Zotero found six PDFs (43%) via the "Find Full Text" menu option while the extension was able to retrieve seven PDFs (50%). The only difference between the two methods involved Zotero being identified as a robot by the target website and successively being refused access to the PDF file. The combination of five plugins of the doi-downloader outperformed the two approaches with nine successful downloads (64%). UnpaywallPDFDownloader only retrieved four PDFs (29%).
+
+The extension was tested again on the same fourteen DOIs on 20260929, now with its [robots.txt check](#robotstxt), with the option to finish a download by hand from the status tab (see [Downloading by hand](#downloading-by-hand)), and with institutional access turned on in the browser. It retrieved ten PDFs (71%): the seven of the first test and three more (the DOIs from Springer, Wiley and ScienceDirect in rows 9 to 11). Most downloads that the robots.txt check blocked could be finished by hand, and having institutional access turned on in the browser helped too.
+
+Zotero (version 10.0.3) was tested again on 20261001, now in combination with the Zotero Connector and with institutional access. It retrieved eleven PDFs (79%): the PDFs of the DOIs in rows 1 to 11, so it now outperforms the other three approaches by one PDF. Only the DOIs in rows 12 to 14 remain unretrieved, and none of the four approaches retrieved the two last ones. The doi-downloader and Unpaywall columns are from the first test.
 
 | DOI                               | Publisher/Journal       | Zotero | This extension | doi-downloader | Unpaywall |
 |-----------------------------------|-------------------------|:------:|:--------------:|:--------------:|:---------:|
@@ -89,14 +94,15 @@ The extension was compared to [Zotero](https://www.zotero.org/) (version 8.0.4) 
 | 10.3389/fpsyt.2025.1739639        | frontiersin.com         |   +    |       +        |       +        |     +     |
 | 10.4236/jhrss.2026.141006         | scirp.com               |   +    |       +        |       +        |     -     |
 | 10.3897/aiep.51.63489             | pensoft.com             |   +    |       +        |       +        |     -     |
-| 10.1016/j.nlp.2026.100202         | sciencedirectassets.com |   -    |       +        |       -        |     -     |
-| 10.1177/0022002714560349          | sagepub.com             |   -    |       -        |       +        |     -     |
-| 10.1007/s10198-013-0496-x         | springer.com            |   -    |       -        |       -        |     -     |
-| 10.1111/j.1465-7295.2010.00309.x  | wiley.com               |   -    |       -        |       +        |     -     |
-| 10.1016/j.econlet.2009.08.024     | sciencedirect.com       |   -    |       -        |       +        |     +     |
+| 10.1016/j.nlp.2026.100202         | sciencedirectassets.com |   +    |       +        |       -        |     -     |
+| 10.1177/0022002714560349          | sagepub.com             |   +    |       -        |       +        |     -     |
+| 10.1007/s10198-013-0496-x         | springer.com            |   +    |       +        |       -        |     -     |
+| 10.1111/j.1465-7295.2010.00309.x  | wiley.com               |   +    |       +        |       +        |     -     |
+| 10.1016/j.econlet.2009.08.024     | sciencedirect.com       |   +    |       +        |       +        |     +     |
 | 10.1093/ei/cb1001                 | wiley.com               |   -    |       -        |       +        |     -     |
 | 10.2174/2213476X07666200423081738 | bethamscience.com       |   -    |       -        |       -        |     -     |
 | 10.1504/EJIM.2025.150039          | inderscience.com        |   -    |       -        |       -        |     -     |
+| **Total**                         |                         | **11** |     **10**     |     **9**      |   **4**   |
 
 ## Running the tests
 

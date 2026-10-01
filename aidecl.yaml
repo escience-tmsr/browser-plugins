@@ -306,6 +306,11 @@ ai_usage:
         background script that stays loaded (default/manifest.json), after
         the maintainer saw the progress table emptied between DOIs: Firefox
         unloaded the idle event page, and the table lived only in its memory.
+        A "Download CSV" button in the status tab saves the DOIs and the full
+        paths of their saved PDFs (default/src/progress.js,
+        default/src/status-view.js, default/status-view.html), requested by
+        the maintainer on 2026-09-29. It replaces the popup's "Save Log"
+        button and the list behind it, removed at the maintainer's request.
       ai_involvement: >-
         Requested by the maintainer on 2026-09-28 while testing the
         robots.txt steps; implemented by the agent. Tested by the agent with
@@ -374,4 +379,5 @@ declaration:
     the robots.txt parser, its fetching and caching, the request check and
     the recording of blocks (steps 2 to 5 of docs/robots_txt_plan.md).
     2026-09-29 update, covering steps 3 and 4 of
-    docs/assisted_download_plan.md.
+    docs/assisted_download_plan.md, the maintainer's requests from testing,
+    and the README's evaluation text for the maintainer's test of that day.

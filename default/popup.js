@@ -44,14 +44,6 @@ document.getElementById("openStatusTable").addEventListener("click", () => {
   });
 });
 
-document.getElementById("saveLog").addEventListener("click", () => {
-  browser.runtime.sendMessage({
-    type: "save-log"
-  }).catch(err => { 
-    sendStatus("could not save log!"), isError = true
-  });
-});
-
 
 function sendStatus(text, isError = false) {
   const element = document.getElementById("status");

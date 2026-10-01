@@ -96,8 +96,7 @@ async function processDownloadChange(delta) {
   const basename = fileNameOfPath(item.filename);
   if (state === "complete") {
     self.sendStatus(`✅ Saved PDF to ${item.filename}`);
-    self.recordDownload(self.STATUS_SUCCESS, basename);
-    downloadLog = downloadLog.concat(captureSession.doi, ",", item.filename, "\n");
+    self.recordDownload(self.STATUS_SUCCESS, basename, captureSession, item.filename);
   } else {
     self.recordDownload(`${self.STATUS_ACCESS_ERROR}: ${reason}`, basename);
     self.failCapture(reason);
@@ -482,7 +481,8 @@ async function recordAssistedDownload(downloadItem, downloadState, interruptReas
   }
   ensureManualRow(attributedDownload);
   if (downloadState === "complete") {
-    self.recordPdfDownload(doi, manualPageLabel, `${self.STATUS_SUCCESS}: ${DOWNLOADED_BY_HAND}`, savedFileName);
+    self.recordPdfDownload(doi, manualPageLabel, `${self.STATUS_SUCCESS}: ${DOWNLOADED_BY_HAND}`, savedFileName,
+                           downloadItem.filename);
     self.sendStatus(`📥 PDF downloaded by hand for ${doi}: ${savedFileName}`);
   } else {
     self.recordPdfDownload(doi, manualPageLabel, `${self.STATUS_ACCESS_ERROR}: ${interruptReason}`, savedFileName);
@@ -511,8 +511,9 @@ function recordCapture(status, targetUrl, session = captureSession) {
   self.sendProgressUpdate();
 }
 
-function recordDownload(status, filename, session = captureSession) {
-  self.recordPdfDownload(session.doi, session.pageCounter, status, filename);
+// savedPath: the full path of a saved PDF, for the CSV of saved PDFs.
+function recordDownload(status, filename, session = captureSession, savedPath = null) {
+  self.recordPdfDownload(session.doi, session.pageCounter, status, filename, savedPath);
   self.sendProgressUpdate();
 }
 
@@ -554,25 +555,13 @@ function recordContentProgress(msg) {
   self.sendProgressUpdate();
 }
 
-function saveLog(downloadLogCsv) {
-  const blob = new Blob([downloadLogCsv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-
-  browser.downloads.download({
-    url,
-    filename: "my_table.csv",
-    conflictAction: "uniquify"
-  });
-  self.sendStatus("Saved logfile to Downloads directory");
-}
-
 if (typeof module !== "undefined") {
   module.exports = { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureAndNavigate, armCaptureBase, armCaptureOnly,
                      checkRobotsBeforeRequest, clearAssistedTabs, failCapture, forgetAssistedTab,
                      MANUAL_PAGE_SUFFIX, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange,
                      processIncomingPdfData, recordCapture,
                      recordCaptureFailure, recordContentProgress, recordDownload, recordRobotsBlock, removeSlashes, retrievingAttachment,
-                     retrievingPdfFile, sanitizeDOI, saveLog, seedPageLoadRow, sendProgressUpdate, startJob,
+                     retrievingPdfFile, sanitizeDOI, seedPageLoadRow, sendProgressUpdate, startJob,
                      storeDetailsInSessionData, watchAssistedTab, watchTabOpenedFromAssistedTab,
                      DOWNLOADED_BY_HAND, OPENED_BY_HAND, PDF_VIEWER_DOWNLOAD_PREFIX, VIEWED_BY_HAND,
                      VIEWED_NOT_DOWNLOADED, attributeAssistedDownload, pdfResponseFileName,
@@ -602,7 +591,6 @@ if (typeof self !== "undefined") {
   self.retrievingAttachment = retrievingAttachment;
   self.retrievingPdfFile = retrievingPdfFile;
   self.sanitizeDOI = sanitizeDOI;
-  self.saveLog = saveLog;
   self.seedPageLoadRow = seedPageLoadRow;
   self.sendProgressUpdate = sendProgressUpdate;
   self.startJob = startJob;

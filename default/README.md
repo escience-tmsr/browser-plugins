@@ -82,7 +82,9 @@ The file keeps the name the website gives it, as Firefox does not let extensions
 
 The extension was compared to [Zotero](https://www.zotero.org/) (version 8.0.4) and [UnpaywallPDFDownloader](https://github.com/lixuliu/UnpaywallPDFDownloader) with respect to retrieving a PDF provided a DOI for fourteen DOIs representing papers from different publishers (test date 20260323). Zotero found six PDFs (43%) via the "Find Full Text" menu option while the extension was able to retrieve seven PDFs (50%). The only difference between the two methods involved Zotero being identified as a robot by the target website and successively being refused access to the PDF file. The combination of five plugins of the doi-downloader outperformed the two approaches with nine successful downloads (64%). UnpaywallPDFDownloader only retrieved four PDFs (29%).
 
-The extension was tested again on the same fourteen DOIs on 20260929, now with its [robots.txt check](#robotstxt), with the option to finish a download by hand from the status tab (see [Downloading by hand](#downloading-by-hand)), and with institutional access turned on in the browser. It retrieved ten PDFs (71%): the seven of the first test and three more (the DOIs from Springer, Wiley and ScienceDirect in rows 9 to 11), so it now outperforms the other three approaches. Most downloads that the robots.txt check blocked could be finished by hand, and having institutional access turned on in the browser helped too. The other columns are from the first test: Zotero has not been tested yet with institutional access, which may improve its results too.
+The extension was tested again on the same fourteen DOIs on 20260929, now with its [robots.txt check](#robotstxt), with the option to finish a download by hand from the status tab (see [Downloading by hand](#downloading-by-hand)), and with institutional access turned on in the browser. It retrieved ten PDFs (71%): the seven of the first test and three more (the DOIs from Springer, Wiley and ScienceDirect in rows 9 to 11). Most downloads that the robots.txt check blocked could be finished by hand, and having institutional access turned on in the browser helped too.
+
+Zotero (version 10.0.3) was tested again on 20261001, now in combination with the Zotero Connector and with institutional access. It retrieved eleven PDFs (79%): the PDFs of the DOIs in rows 1 to 11, so it now outperforms the other three approaches by one PDF. Only the DOIs in rows 12 to 14 remain unretrieved, and none of the four approaches retrieved the two last ones. The doi-downloader and Unpaywall columns are from the first test.
 
 | DOI                               | Publisher/Journal       | Zotero | This extension | doi-downloader | Unpaywall |
 |-----------------------------------|-------------------------|:------:|:--------------:|:--------------:|:---------:|
@@ -92,15 +94,15 @@ The extension was tested again on the same fourteen DOIs on 20260929, now with i
 | 10.3389/fpsyt.2025.1739639        | frontiersin.com         |   +    |       +        |       +        |     +     |
 | 10.4236/jhrss.2026.141006         | scirp.com               |   +    |       +        |       +        |     -     |
 | 10.3897/aiep.51.63489             | pensoft.com             |   +    |       +        |       +        |     -     |
-| 10.1016/j.nlp.2026.100202         | sciencedirectassets.com |   -    |       +        |       -        |     -     |
-| 10.1177/0022002714560349          | sagepub.com             |   -    |       -        |       +        |     -     |
-| 10.1007/s10198-013-0496-x         | springer.com            |   -    |       +        |       -        |     -     |
-| 10.1111/j.1465-7295.2010.00309.x  | wiley.com               |   -    |       +        |       +        |     -     |
-| 10.1016/j.econlet.2009.08.024     | sciencedirect.com       |   -    |       +        |       +        |     +     |
+| 10.1016/j.nlp.2026.100202         | sciencedirectassets.com |   +    |       +        |       -        |     -     |
+| 10.1177/0022002714560349          | sagepub.com             |   +    |       -        |       +        |     -     |
+| 10.1007/s10198-013-0496-x         | springer.com            |   +    |       +        |       -        |     -     |
+| 10.1111/j.1465-7295.2010.00309.x  | wiley.com               |   +    |       +        |       +        |     -     |
+| 10.1016/j.econlet.2009.08.024     | sciencedirect.com       |   +    |       +        |       +        |     +     |
 | 10.1093/ei/cb1001                 | wiley.com               |   -    |       -        |       +        |     -     |
 | 10.2174/2213476X07666200423081738 | bethamscience.com       |   -    |       -        |       -        |     -     |
 | 10.1504/EJIM.2025.150039          | inderscience.com        |   -    |       -        |       -        |     -     |
-| **Total**                         |                         | **6**  |     **10**     |     **9**      |   **4**   |
+| **Total**                         |                         | **11** |     **10**     |     **9**      |   **4**   |
 
 ## Running the tests
 

@@ -1,4 +1,7 @@
-const { findElementByPhrase, performAction, sendStatus }  = require("../src/content.functions");
+const { findElementByPhrase, performAction, recordProgress, sendStatus }  = require("../src/content.functions");
+
+const DOI = "10.1234/doi";
+const LINK_URL = "https://publisher.example/article.pdf";
 
 describe("sendStatus", () => {
   test("report status", () => {
@@ -8,6 +11,25 @@ describe("sendStatus", () => {
     sendStatus(text);
     expect(self.browser.runtime.sendMessage).toHaveBeenCalledTimes(1);
     expect(self.console.log).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("recordProgress", () => {
+  test("sends the stage, doi and details to the background", async () => {
+    global.browser = {"runtime": {"sendMessage": jest.fn().mockResolvedValue()}};
+    await recordProgress("link", DOI, { found: true, url: LINK_URL });
+    expect(browser.runtime.sendMessage).toHaveBeenCalledWith(
+      { type: "record-progress", stage: "link", doi: DOI, found: true, url: LINK_URL });
+  });
+
+  test("resolves when the background does not answer", async () => {
+    global.browser = {"runtime": {"sendMessage": jest.fn().mockRejectedValue(new Error("error"))}};
+    await expect(recordProgress("page", DOI, { url: LINK_URL })).resolves.toBeUndefined();
+  });
+
+  test("resolves when messaging is not available", async () => {
+    global.browser = {};
+    await expect(recordProgress("page", DOI, { url: LINK_URL })).resolves.toBeUndefined();
   });
 });
 
@@ -41,12 +63,47 @@ describe("findElementByPhrase", () => {
 });
 
 describe("performAction", () => {
-  const job = {"phrase": "abc"}
+  const job = {"phrase": "abc", "doi": DOI}
   const myTabId = 0;
 
   beforeEach(() => {
     jest.clearAllMocks();
     global.browser = {"runtime": {"sendMessage": jest.fn().mockResolvedValue()}};
+    self.recordProgress = recordProgress;
+  });
+
+  // The message types sent to the background, in order.
+  function sentMessageTypes() {
+    return browser.runtime.sendMessage.mock.calls.map(([msg]) => msg.type);
+  }
+
+  test("a found link is recorded with its url before the capture is requested", async() => {
+    const data = document.createElement("a");
+    data.href = LINK_URL;
+    self.findElementByPhrase = jest.fn().mockReturnValue(data);
+    self.sendStatus = jest.fn();
+    await performAction(job, myTabId);
+    expect(browser.runtime.sendMessage).toHaveBeenCalledWith(
+      { type: "record-progress", stage: "link", doi: DOI, found: true, url: LINK_URL });
+    expect(sentMessageTypes()).toEqual(["record-progress", "download_pdf_via_tab_capture"]);
+  });
+
+  // The capture is armed for this tab only: a button that opens the PDF in a new tab
+  // (window.open, or a form with target="_blank") is not captured, and the capture is
+  // recorded as failed when it times out. See the comment in performAction.
+  test("a found button is recorded without a url before the capture is armed", async() => {
+    self.findElementByPhrase = jest.fn().mockReturnValue(document.createElement("button"));
+    await performAction(job, myTabId);
+    expect(browser.runtime.sendMessage).toHaveBeenCalledWith(
+      { type: "record-progress", stage: "link", doi: DOI, found: true, url: null });
+    expect(sentMessageTypes()).toEqual(["record-progress", "arm_capture_for_tab"]);
+  });
+
+  test("a missing link is recorded as not found", async() => {
+    self.findElementByPhrase = jest.fn().mockReturnValue(null);
+    await performAction(job, myTabId);
+    expect(browser.runtime.sendMessage).toHaveBeenCalledWith(
+      { type: "record-progress", stage: "link", doi: DOI, found: false, url: null });
   });
 
   test("detect phrase in hyperlink: success", async() => {
@@ -104,6 +161,7 @@ describe("maybeRunJob", () => {
     jest.clearAllMocks();
     job = {
       "tabId": myTabId, 
+      "doi": DOI,
       "usedUrls": [],
     }          
     global.browser = {"storage": {"local": {
@@ -112,6 +170,18 @@ describe("maybeRunJob", () => {
     }}};
     self.sendStatus = jest.fn();
     self.performAction = jest.fn();
+    self.recordProgress = jest.fn().mockResolvedValue();
+  });
+
+  test("reports the page it landed on", async() => {
+    await maybeRunJob(myTabId);
+    expect(self.recordProgress).toHaveBeenCalledWith("page", DOI, { url: global.location.href });
+  });
+
+  test("does not report a page it already processed", async() => {
+    job.usedUrls.push(global.location.href);
+    await maybeRunJob(myTabId);
+    expect(self.recordProgress).not.toHaveBeenCalled();
   });
 
   test("run successfully", async() => {

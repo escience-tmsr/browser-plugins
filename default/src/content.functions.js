@@ -4,6 +4,18 @@ function sendStatus(text) {
 }
 
 self.sendStatus = sendStatus;
+
+// Report a page load or a link search to the background, which adds the page number
+// and records it in the progress table. Resolves once the background has recorded it.
+function recordProgress(stage, doi, details) {
+  try {
+    return browser.runtime.sendMessage({ type: "record-progress", stage, doi, ...details }).catch(() => {});
+  } catch (_) {
+    return Promise.resolve();
+  }
+}
+
+self.recordProgress = recordProgress;
 function findElementByPhrase(phrases) {
   for (const phrase of phrases) {
     const needle = phrase.toLowerCase();
@@ -35,9 +47,13 @@ async function performAction(job, myTabId) {
 
   if (!el) {
     self.sendStatus(`❌ No link or button found containing "${phrase}"`);
+    await self.recordProgress("link", job.doi, { found: false, url: null });
     return "not found";
   }
   const tag = el.tagName.toLowerCase();
+  // Recorded before the capture is armed, which moves the background on to the next page.
+  // A button has no URL of its own: that only becomes known in the capture stage.
+  await self.recordProgress("link", job.doi, { found: true, url: (tag === "a" && el.href) || null });
 
   if (tag === "a" && el.href) {
     const pdfUrl = el.href;
@@ -60,6 +76,9 @@ async function performAction(job, myTabId) {
 
   self.sendStatus("Arming capture…");
 
+  // The capture only watches this tab. If the button opens the PDF in a new tab
+  // (window.open, or a form with target="_blank"), the PDF is not captured and the
+  // capture is recorded as failed when it times out.
   await browser.runtime.sendMessage({
     type: "arm_capture_for_tab",
     doi: job.doi,
@@ -96,6 +115,7 @@ async function maybeRunJob(myTabId) {
 
   job.usedUrls.push(here);
   await browser.storage.local.set({ job });
+  await self.recordProgress("page", job.doi, { url: here });
 
   self.sendStatus("[default-extension] tabId matches job, running job");
 
@@ -109,10 +129,11 @@ async function maybeRunJob(myTabId) {
   return "finished job"
 }
 
-module.exports = { findElementByPhrase, maybeRunJob, performAction, sendStatus, };
+module.exports = { findElementByPhrase, maybeRunJob, performAction, recordProgress, sendStatus, };
 if (typeof self !== "undefined") {
   self.findElementByPhrase = findElementByPhrase;
   self.maybeRunJob = maybeRunJob;
   self.performAction = performAction;
+  self.recordProgress = recordProgress;
   self.sendStatus = sendStatus;
 }

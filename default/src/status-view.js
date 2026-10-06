@@ -57,12 +57,12 @@ async function openOrFocusStatusTab() {
 // - scrollHeight: the height of all content. It grows when rows or lines are added.
 // So scrollHeight >= scrollTop + clientHeight, and the difference is hidden below.
 
-function hiddenHeightBelow(scrollArea) {
+function measureHiddenHeightBelow(scrollArea) {
   return scrollArea.scrollHeight - scrollArea.scrollTop - scrollArea.clientHeight;
 }
 
 function isScrolledToBottom(scrollArea) {
-  return hiddenHeightBelow(scrollArea) <= SCROLL_BOTTOM_TOLERANCE_PX;
+  return measureHiddenHeightBelow(scrollArea) <= SCROLL_BOTTOM_TOLERANCE_PX;
 }
 
 function isScrolledDownFromTop(scrollArea) {
@@ -73,46 +73,46 @@ function scrollToBottom(scrollArea) {
   scrollArea.scrollTop = scrollArea.scrollHeight - scrollArea.clientHeight;
 }
 
-function entryKindOf(scrollArea) {
+function getEntryKind(scrollArea) {
   return ENTRY_KINDS[scrollArea.id];
 }
 
 function countEntries(scrollArea) {
-  return entryKindOf(scrollArea).countEntries(scrollArea);
+  return getEntryKind(scrollArea).countEntries(scrollArea);
 }
 
 // For example "7 rows", "1 line" or, with labelPrefix "new ", "3 new lines".
-function entriesLabel(entryCount, entryKind, labelPrefix = "") {
+function formatEntriesLabel(entryCount, entryKind, labelPrefix = "") {
   const entryName = entryCount === 1 ? entryKind.singularName : entryKind.pluralName;
   return `${entryCount} ${labelPrefix}${entryName}`;
 }
 
-function unseenNewEntryCount(scrollArea) {
+function countUnseenNewEntries(scrollArea) {
   // Never negative, also not if a replaced progress table had fewer rows.
   return Math.max(0, countEntries(scrollArea) - seenEntryCounts[scrollArea.id]);
 }
 
 function hasUnseenNewEntries(scrollArea) {
-  return unseenNewEntryCount(scrollArea) > 0;
+  return countUnseenNewEntries(scrollArea) > 0;
 }
 
 function markEntriesAsSeen(scrollArea) {
   seenEntryCounts[scrollArea.id] = countEntries(scrollArea);
 }
 
-function headingCountElement(scrollArea) {
+function findHeadingCountElement(scrollArea) {
   return document.getElementById(scrollArea.id + COUNT_ID_SUFFIX);
 }
 
-function newEntriesButton(scrollArea) {
+function findNewEntriesButton(scrollArea) {
   return document.getElementById(scrollArea.id + NEW_ENTRIES_ID_SUFFIX);
 }
 
 // The count in the heading, for example "(7 rows)".
 function setHeadingText(scrollArea) {
-  const countElement = headingCountElement(scrollArea);
+  const countElement = findHeadingCountElement(scrollArea);
   if (!countElement) return;
-  countElement.textContent = `(${entriesLabel(countEntries(scrollArea), entryKindOf(scrollArea))})`;
+  countElement.textContent = `(${formatEntriesLabel(countEntries(scrollArea), getEntryKind(scrollArea))})`;
 }
 
 // The shadow under the heading shows that there are entries above the visible part.
@@ -125,10 +125,10 @@ function updateScrolledShadow(scrollArea) {
 
 // The button, for example "▼ 3 new lines", is shown only while there are unseen entries.
 function updateNewEntriesButton(scrollArea) {
-  const button = newEntriesButton(scrollArea);
+  const button = findNewEntriesButton(scrollArea);
   if (!button) return;
   button.hidden = !hasUnseenNewEntries(scrollArea);
-  button.textContent = `▼ ${entriesLabel(unseenNewEntryCount(scrollArea), entryKindOf(scrollArea), "new ")}`;
+  button.textContent = `▼ ${formatEntriesLabel(countUnseenNewEntries(scrollArea), getEntryKind(scrollArea), "new ")}`;
 }
 
 // Bring a scrolling area's indicators up to date after its content or scroll position
@@ -164,7 +164,7 @@ function jumpToBottom(scrollArea) {
 // button jump back to the bottom.
 function watchScrolling(scrollArea) {
   scrollArea.addEventListener("scroll", () => refreshIndicators(scrollArea));
-  const button = newEntriesButton(scrollArea);
+  const button = findNewEntriesButton(scrollArea);
   if (button) {
     button.addEventListener("click", () => jumpToBottom(scrollArea));
   }

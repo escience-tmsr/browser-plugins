@@ -87,13 +87,13 @@ function entriesLabel(entryCount, entryKind, labelPrefix = "") {
   return `${entryCount} ${labelPrefix}${entryName}`;
 }
 
-function unseenEntryCount(scrollArea) {
+function unseenNewEntryCount(scrollArea) {
   // Never negative, also not if a replaced progress table had fewer rows.
   return Math.max(0, countEntries(scrollArea) - seenEntryCounts[scrollArea.id]);
 }
 
-function hasUnseenEntries(scrollArea) {
-  return unseenEntryCount(scrollArea) > 0;
+function hasUnseenNewEntries(scrollArea) {
+  return unseenNewEntryCount(scrollArea) > 0;
 }
 
 function markEntriesAsSeen(scrollArea) {
@@ -127,8 +127,8 @@ function updateScrolledShadow(scrollArea) {
 function updateNewEntriesButton(scrollArea) {
   const button = newEntriesButton(scrollArea);
   if (!button) return;
-  button.hidden = !hasUnseenEntries(scrollArea);
-  button.textContent = `▼ ${entriesLabel(unseenEntryCount(scrollArea), entryKindOf(scrollArea), "new ")}`;
+  button.hidden = !hasUnseenNewEntries(scrollArea);
+  button.textContent = `▼ ${entriesLabel(unseenNewEntryCount(scrollArea), entryKindOf(scrollArea), "new ")}`;
 }
 
 // Bring a scrolling area's indicators up to date after its content or scroll position

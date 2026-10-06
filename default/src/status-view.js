@@ -35,8 +35,9 @@ const ENTRY_KINDS = {
   },
 };
 
-// Entries added below the view while the viewer was scrolled up, per scrolling area.
-const unseenEntryCounts = { [PROGRESS_ELEMENT_ID]: 0, [LOG_ELEMENT_ID]: 0 };
+// The number of entries each scrolling area had when the viewer last saw its bottom.
+// Entries beyond that number arrived while the viewer was scrolled up: they are unseen.
+const seenEntryCounts = { [PROGRESS_ELEMENT_ID]: 0, [LOG_ELEMENT_ID]: 0 };
 
 async function openOrFocusStatusTab() {
   const statusPageUrl = browser.runtime.getURL(STATUS_VIEW_PAGE);
@@ -86,17 +87,17 @@ function entriesLabel(entryCount, entryKind, labelPrefix = "") {
   return `${entryCount} ${labelPrefix}${entryName}`;
 }
 
+function unseenEntryCount(scrollArea) {
+  // Never negative, also not if a replaced progress table had fewer rows.
+  return Math.max(0, countEntries(scrollArea) - seenEntryCounts[scrollArea.id]);
+}
+
 function hasUnseenEntries(scrollArea) {
-  return unseenEntryCounts[scrollArea.id] > 0;
+  return unseenEntryCount(scrollArea) > 0;
 }
 
-function addUnseenEntries(scrollArea, addedEntryCount) {
-  // A replaced progress table with fewer rows must not lower the number of unseen entries.
-  unseenEntryCounts[scrollArea.id] += Math.max(0, addedEntryCount);
-}
-
-function markNewEntriesAsSeen(scrollArea) {
-  unseenEntryCounts[scrollArea.id] = 0;
+function markEntriesAsSeen(scrollArea) {
+  seenEntryCounts[scrollArea.id] = countEntries(scrollArea);
 }
 
 function headingCountElement(scrollArea) {
@@ -126,9 +127,8 @@ function updateScrolledShadow(scrollArea) {
 function updateNewEntriesButton(scrollArea) {
   const button = newEntriesButton(scrollArea);
   if (!button) return;
-  const unseenEntryCount = unseenEntryCounts[scrollArea.id];
   button.hidden = !hasUnseenEntries(scrollArea);
-  button.textContent = `▼ ${entriesLabel(unseenEntryCount, entryKindOf(scrollArea), "new ")}`;
+  button.textContent = `▼ ${entriesLabel(unseenEntryCount(scrollArea), entryKindOf(scrollArea), "new ")}`;
 }
 
 // Bring a scrolling area's indicators up to date after its content or scroll position
@@ -138,7 +138,7 @@ function refreshIndicators(scrollArea) {
   setHeadingText(scrollArea);
   updateScrolledShadow(scrollArea);
   if (isScrolledToBottom(scrollArea)) {
-    markNewEntriesAsSeen(scrollArea);
+    markEntriesAsSeen(scrollArea);
   }
   updateNewEntriesButton(scrollArea);
 }
@@ -148,12 +148,9 @@ function refreshIndicators(scrollArea) {
 // entries are counted on the "new entries" button.
 function updateAndFollowBottom(scrollArea, applyUpdate) {
   const wasAtBottom = isScrolledToBottom(scrollArea);
-  const entryCountBefore = countEntries(scrollArea);
   applyUpdate();
   if (wasAtBottom) {
     scrollToBottom(scrollArea);
-  } else {
-    addUnseenEntries(scrollArea, countEntries(scrollArea) - entryCountBefore);
   }
   refreshIndicators(scrollArea);
 }

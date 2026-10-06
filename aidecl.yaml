@@ -198,7 +198,9 @@ ai_usage:
         Revised by the agent on 2026-10-06 to address the maintainer's second
         review of PR #11: src/status-view.js restructured into small,
         descriptively named functions and variables, with comments on the
-        scroll measurements (148/148 tests passing).
+        scroll measurements, and unseen entries counted against the number
+        of entries at the viewer's last visit to the bottom instead of a
+        running total, at the maintainer's request (148/148 tests passing).
       tools_used: [Claude Code]
       notes: pending maintainer review before merge.
 

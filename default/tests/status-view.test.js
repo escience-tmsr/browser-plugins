@@ -137,7 +137,7 @@ describe("following the bottom of the table and the log", () => {
   test("a new table is scrolled to the bottom when the table was at the bottom", () => {
     setScrollPosition(progressElement(), BOTTOM);
     statusView.handleStatusViewMessage({ type: "progress-update", html: TABLE_HTML });
-    expect(progressElement().scrollTop).toBe(CONTENT_HEIGHT);
+    expect(progressElement().scrollTop).toBe(BOTTOM);
   });
 
   test("a new table keeps the scroll position when the viewer scrolled up", () => {
@@ -149,7 +149,7 @@ describe("following the bottom of the table and the log", () => {
   test("a new log line is scrolled into view when the log was at the bottom", () => {
     setScrollPosition(logElement(), BOTTOM);
     statusView.handleStatusViewMessage({ type: "status", text: LOG_TEXT });
-    expect(logElement().scrollTop).toBe(CONTENT_HEIGHT);
+    expect(logElement().scrollTop).toBe(BOTTOM);
   });
 
   test("a new log line keeps the scroll position when the viewer scrolled up", () => {
@@ -161,7 +161,7 @@ describe("following the bottom of the table and the log", () => {
   test("a position just above the bottom still counts as the bottom", () => {
     setScrollPosition(logElement(), BOTTOM - SCROLL_BOTTOM_TOLERANCE_PX);
     statusView.handleStatusViewMessage({ type: "status", text: LOG_TEXT });
-    expect(logElement().scrollTop).toBe(CONTENT_HEIGHT);
+    expect(logElement().scrollTop).toBe(BOTTOM);
   });
 
   test("a position further above the bottom does not", () => {
@@ -271,7 +271,7 @@ describe("scroll indicators", () => {
     setScrollPosition(logElement(), TOP);
     sendLogLines();
     newEntriesButton(LOG_ELEMENT_ID).click();
-    expect(logElement().scrollTop).toBe(CONTENT_HEIGHT);
+    expect(logElement().scrollTop).toBe(BOTTOM);
     expect(newEntriesButton(LOG_ELEMENT_ID).hidden).toBe(true);
   });
 

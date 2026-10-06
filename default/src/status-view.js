@@ -14,112 +14,186 @@ const LOG_ELEMENT_ID = "log";
 const SCROLL_BOTTOM_TOLERANCE_PX = 5;
 // Each scrolling area (id PROGRESS_ELEMENT_ID or LOG_ELEMENT_ID) has a count in its
 // heading (id + COUNT_ID_SUFFIX) and a "new entries" button (id + NEW_ENTRIES_ID_SUFFIX);
-// its container gets SCROLLED_CLASS, which shows a shadow, while it is scrolled down.
+// its scroll box (the area's parent) gets SCROLLED_CLASS, which shows a shadow under the
+// heading, while the area is scrolled down.
 const COUNT_ID_SUFFIX = "-count";
 const NEW_ENTRIES_ID_SUFFIX = "-new";
 const SCROLLED_CLASS = "scrolled";
 
-// What the entries of each scrolling area are, and how to count them.
-const PANES = {
-  [PROGRESS_ELEMENT_ID]: { one: "row", many: "rows", count: (element) => element.querySelectorAll("tbody tr").length },
-  [LOG_ELEMENT_ID]: { one: "line", many: "lines", count: (element) => element.children.length },
+// What the entries of each scrolling area are called, and how to count them.
+const ENTRY_KINDS = {
+  [PROGRESS_ELEMENT_ID]: {
+    singularName: "row",
+    pluralName: "rows",
+    // Only the data rows: the heading row is in the table's thead.
+    countEntries: (scrollArea) => scrollArea.querySelectorAll("tbody tr").length,
+  },
+  [LOG_ELEMENT_ID]: {
+    singularName: "line",
+    pluralName: "lines",
+    countEntries: (scrollArea) => scrollArea.children.length,
+  },
 };
 
 // Entries added below the view while the viewer was scrolled up, per scrolling area.
-const unseenEntries = { [PROGRESS_ELEMENT_ID]: 0, [LOG_ELEMENT_ID]: 0 };
+const unseenEntryCounts = { [PROGRESS_ELEMENT_ID]: 0, [LOG_ELEMENT_ID]: 0 };
 
 async function openOrFocusStatusTab() {
-  const url = browser.runtime.getURL(STATUS_VIEW_PAGE);
-  const tabs = await browser.tabs.query({});
-  const tab = tabs.find((t) => t.url === url);
-  if (tab) {
-    await browser.windows.update(tab.windowId, { focused: true });
-    return browser.tabs.update(tab.id, { active: true });
+  const statusPageUrl = browser.runtime.getURL(STATUS_VIEW_PAGE);
+  const openTabs = await browser.tabs.query({});
+  const statusTab = openTabs.find((openTab) => openTab.url === statusPageUrl);
+  if (statusTab) {
+    await browser.windows.update(statusTab.windowId, { focused: true });
+    return browser.tabs.update(statusTab.id, { active: true });
   }
-  return browser.tabs.create({ url });
+  return browser.tabs.create({ url: statusPageUrl });
 }
 
-function isScrolledToBottom(element) {
-  return element.scrollHeight - element.scrollTop - element.clientHeight <= SCROLL_BOTTOM_TOLERANCE_PX;
+// Scroll position, in pixels, from the browser's layout of a scrolling area:
+// - clientHeight: the height of the visible part. Mostly constant.
+// - scrollTop: how far the content has been scrolled down, i.e. the height of the part
+//   above the visible part. It is 0 at the top and changes when the viewer scrolls.
+// - scrollHeight: the height of all content. It grows when rows or lines are added.
+// So scrollHeight >= scrollTop + clientHeight, and the difference is hidden below.
+
+function hiddenHeightBelow(scrollArea) {
+  return scrollArea.scrollHeight - scrollArea.scrollTop - scrollArea.clientHeight;
 }
 
-function scrollToBottom(element) {
-  element.scrollTop = element.scrollHeight;
+function isScrolledToBottom(scrollArea) {
+  return hiddenHeightBelow(scrollArea) <= SCROLL_BOTTOM_TOLERANCE_PX;
 }
 
-function entriesLabel(count, pane, prefix = "") {
-  return `${count} ${prefix}${count === 1 ? pane.one : pane.many}`;
+function isScrolledDownFromTop(scrollArea) {
+  return scrollArea.scrollTop > 0;
 }
 
-// Bring a scrolling area's indicators up to date: the count in its heading, the shadow
-// under the heading, and the "new entries" button.
-function refreshIndicators(element) {
-  const pane = PANES[element.id];
-  const countElement = document.getElementById(element.id + COUNT_ID_SUFFIX);
-  if (countElement) {
-    countElement.textContent = `(${entriesLabel(pane.count(element), pane)})`;
+function scrollToBottom(scrollArea) {
+  scrollArea.scrollTop = scrollArea.scrollHeight - scrollArea.clientHeight;
+}
+
+function entryKindOf(scrollArea) {
+  return ENTRY_KINDS[scrollArea.id];
+}
+
+function countEntries(scrollArea) {
+  return entryKindOf(scrollArea).countEntries(scrollArea);
+}
+
+// For example "7 rows", "1 line" or, with labelPrefix "new ", "3 new lines".
+function entriesLabel(entryCount, entryKind, labelPrefix = "") {
+  const entryName = entryCount === 1 ? entryKind.singularName : entryKind.pluralName;
+  return `${entryCount} ${labelPrefix}${entryName}`;
+}
+
+function hasUnseenEntries(scrollArea) {
+  return unseenEntryCounts[scrollArea.id] > 0;
+}
+
+function addUnseenEntries(scrollArea, addedEntryCount) {
+  // A replaced progress table with fewer rows must not lower the number of unseen entries.
+  unseenEntryCounts[scrollArea.id] += Math.max(0, addedEntryCount);
+}
+
+function markNewEntriesAsSeen(scrollArea) {
+  unseenEntryCounts[scrollArea.id] = 0;
+}
+
+function headingCountElement(scrollArea) {
+  return document.getElementById(scrollArea.id + COUNT_ID_SUFFIX);
+}
+
+function newEntriesButton(scrollArea) {
+  return document.getElementById(scrollArea.id + NEW_ENTRIES_ID_SUFFIX);
+}
+
+// The count in the heading, for example "(7 rows)".
+function setHeadingText(scrollArea) {
+  const countElement = headingCountElement(scrollArea);
+  if (!countElement) return;
+  countElement.textContent = `(${entriesLabel(countEntries(scrollArea), entryKindOf(scrollArea))})`;
+}
+
+// The shadow under the heading shows that there are entries above the visible part.
+// It is drawn by the CSS on the scroll box, which does not scroll itself, so the
+// shadow stays in place under the heading.
+function updateScrolledShadow(scrollArea) {
+  const scrollBox = scrollArea.parentElement;
+  scrollBox.classList.toggle(SCROLLED_CLASS, isScrolledDownFromTop(scrollArea));
+}
+
+// The button, for example "▼ 3 new lines", is shown only while there are unseen entries.
+function updateNewEntriesButton(scrollArea) {
+  const button = newEntriesButton(scrollArea);
+  if (!button) return;
+  const unseenEntryCount = unseenEntryCounts[scrollArea.id];
+  button.hidden = !hasUnseenEntries(scrollArea);
+  button.textContent = `▼ ${entriesLabel(unseenEntryCount, entryKindOf(scrollArea), "new ")}`;
+}
+
+// Bring a scrolling area's indicators up to date after its content or scroll position
+// has changed: the count in its heading, the shadow under the heading, and the
+// "new entries" button. Entries count as seen once the viewer is at the bottom.
+function refreshIndicators(scrollArea) {
+  setHeadingText(scrollArea);
+  updateScrolledShadow(scrollArea);
+  if (isScrolledToBottom(scrollArea)) {
+    markNewEntriesAsSeen(scrollArea);
   }
-  element.parentElement.classList.toggle(SCROLLED_CLASS, element.scrollTop > 0);
-  if (isScrolledToBottom(element)) {
-    unseenEntries[element.id] = 0;
-  }
-  const button = document.getElementById(element.id + NEW_ENTRIES_ID_SUFFIX);
-  if (button) {
-    button.hidden = unseenEntries[element.id] === 0;
-    button.textContent = `▼ ${entriesLabel(unseenEntries[element.id], pane, "new ")}`;
-  }
+  updateNewEntriesButton(scrollArea);
 }
 
 // Apply an update to a scrolling area and keep showing its bottom, unless the viewer
 // has scrolled up to read something: then the view stays where it is, and the new
 // entries are counted on the "new entries" button.
-function updateAndFollowBottom(element, update) {
-  const pane = PANES[element.id];
-  const following = isScrolledToBottom(element);
-  const countBefore = pane.count(element);
-  update();
-  if (following) {
-    scrollToBottom(element);
+function updateAndFollowBottom(scrollArea, applyUpdate) {
+  const wasAtBottom = isScrolledToBottom(scrollArea);
+  const entryCountBefore = countEntries(scrollArea);
+  applyUpdate();
+  if (wasAtBottom) {
+    scrollToBottom(scrollArea);
   } else {
-    unseenEntries[element.id] += Math.max(0, pane.count(element) - countBefore);
+    addUnseenEntries(scrollArea, countEntries(scrollArea) - entryCountBefore);
   }
-  refreshIndicators(element);
+  refreshIndicators(scrollArea);
+}
+
+function jumpToBottom(scrollArea) {
+  scrollToBottom(scrollArea);
+  refreshIndicators(scrollArea);
 }
 
 // Keep the indicators up to date while the viewer scrolls, and let the "new entries"
 // button jump back to the bottom.
-function watchScrolling(element) {
-  element.addEventListener("scroll", () => refreshIndicators(element));
-  const button = document.getElementById(element.id + NEW_ENTRIES_ID_SUFFIX);
+function watchScrolling(scrollArea) {
+  scrollArea.addEventListener("scroll", () => refreshIndicators(scrollArea));
+  const button = newEntriesButton(scrollArea);
   if (button) {
-    button.addEventListener("click", () => {
-      scrollToBottom(element);
-      refreshIndicators(element);
-    });
+    button.addEventListener("click", () => jumpToBottom(scrollArea));
   }
-  refreshIndicators(element);
+  refreshIndicators(scrollArea);
 }
 
-function replaceProgressTable(html) {
-  const element = document.getElementById(PROGRESS_ELEMENT_ID);
-  if (!element) return;
-  const parsed = new DOMParser().parseFromString(html, "text/html");
-  updateAndFollowBottom(element, () => element.replaceChildren(...parsed.body.childNodes));
+function replaceProgressTable(tableHtml) {
+  const progressArea = document.getElementById(PROGRESS_ELEMENT_ID);
+  if (!progressArea) return;
+  const parsedTable = new DOMParser().parseFromString(tableHtml, "text/html");
+  updateAndFollowBottom(progressArea, () => progressArea.replaceChildren(...parsedTable.body.childNodes));
 }
 
-function appendLogLine(text) {
-  const element = document.getElementById(LOG_ELEMENT_ID);
-  if (!element) return;
-  const line = document.createElement("div");
-  line.textContent = text;
-  updateAndFollowBottom(element, () => element.appendChild(line));
+function appendLogLine(lineText) {
+  const logArea = document.getElementById(LOG_ELEMENT_ID);
+  if (!logArea) return;
+  const logLine = document.createElement("div");
+  logLine.textContent = lineText;
+  updateAndFollowBottom(logArea, () => logArea.appendChild(logLine));
 }
 
-function handleStatusViewMessage(msg) {
-  if (msg?.type === "progress-update") {
-    replaceProgressTable(msg.html);
-  } else if (msg?.type === "status") {
-    appendLogLine(msg.text);
+function handleStatusViewMessage(statusViewMessage) {
+  if (statusViewMessage?.type === "progress-update") {
+    replaceProgressTable(statusViewMessage.html);
+  } else if (statusViewMessage?.type === "status") {
+    appendLogLine(statusViewMessage.text);
   }
 }
 
@@ -127,16 +201,16 @@ function handleStatusViewMessage(msg) {
 // (re)opened tab does not stay empty until the next recording call.
 function requestCurrentProgress() {
   return browser.runtime.sendMessage({ type: "get-progress" })
-    .then((response) => {
-      if (response?.html) replaceProgressTable(response.html);
+    .then((progressResponse) => {
+      if (progressResponse?.html) replaceProgressTable(progressResponse.html);
     })
     .catch(() => {});
 }
 
 function initStatusView() {
-  for (const id of Object.keys(PANES)) {
-    const element = document.getElementById(id);
-    if (element) watchScrolling(element);
+  for (const scrollAreaId of Object.keys(ENTRY_KINDS)) {
+    const scrollArea = document.getElementById(scrollAreaId);
+    if (scrollArea) watchScrolling(scrollArea);
   }
   browser.runtime.onMessage.addListener(handleStatusViewMessage);
   return requestCurrentProgress();

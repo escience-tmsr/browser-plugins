@@ -48,6 +48,7 @@ The table is kept by the extension's background script, so closing and reopening
 
 ### Known limitations
 
+* This browser extension only works with the Firefox web browser
 * One DOI is processed at a time. Starting a new DOI while another is still being processed stops the first one.
 * When a button (not a link) opens the PDF in a new tab, the extension does not capture it; the capture is reported as failed after 15 seconds.
 * When the same DOI is processed twice, the second run overwrites the first run's table cells only where it records something new.

@@ -172,6 +172,7 @@ describe("processIncomingPdfData", () => {
     expect(browser.downloads.download).not.toHaveBeenCalled();
   });
 
+  // this test checks for a possibly erroneous call of browser.webRequest.filterResponseData
   test("a PDF the browser downloads itself is not filtered", () => {
     global.captureSession = { doi: DOI, pageCounter: 1, expectBrowserDownload: true };
     processIncomingPdfData({ requestId: "req-2b" });

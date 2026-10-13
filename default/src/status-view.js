@@ -54,6 +54,7 @@ async function openOrFocusStatusTab() {
 // - clientHeight: the height of the visible part. Mostly constant.
 // - scrollTop: how far the content has been scrolled down, i.e. the height of the part
 //   above the visible part. It is 0 at the top and changes when the viewer scrolls.
+//   The code can also set it, to scroll the area itself (see scrollToBottom).
 // - scrollHeight: the height of all content. It grows when rows or lines are added.
 // So scrollHeight >= scrollTop + clientHeight, and the difference is hidden below.
 

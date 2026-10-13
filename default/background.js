@@ -27,17 +27,7 @@ browser.webRequest.onHeadersReceived.addListener(
 );
 
 browser.downloads.onChanged.addListener((delta) => {
-  if (!delta.state || delta.state.current !== "complete") return;
-
-  browser.downloads.search({ id: delta.id }).then(([item]) => {
-    if (!item) return;
-    if (captureSession !== null && (item.mime.includes("application/pdf") || item.filename.endsWith(".pdf"))) {
-      self.sendStatus(`✅ Saved PDF to ${item.filename}`);
-      self.recordDownload(self.STATUS_SUCCESS, item.filename.split(/[\\/]/).pop());
-      downloadLog = downloadLog.concat(captureSession.doi, ",", item.filename, "\n");
-      captureSession = null;
-    }
-  });
+  self.processDownloadChange(delta);
 });
 
 browser.runtime.onMessage.addListener((msg, sender) => {

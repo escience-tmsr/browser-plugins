@@ -1,39 +1,41 @@
+// constants
+
 const TAB_ID = 7;
 const TAB_ID_REQUEST = { type: "what-is-my-tabid" };
+const REQUEST_ERROR = "no receiver";
 const NO_TAB_ID_STATUS = "[default-extension] no tabId available, doing nothing";
+const TAB_ERROR_STATUS = `[default-extension] error getting tabId: Error: ${REQUEST_ERROR}`;
 
-// content-script.js starts as soon as it is loaded, like in a page, so the browser
-// and the functions from src/content.functions.js are mocked before loading it.
-// The background does not answer the tab id request made while loading, so that
-// request cannot schedule a job check in the middle of a test.
+// test helper functions
+
 function mockPageEnvironment() {
-  const neverAnswered = new Promise(() => {});
-  global.browser = { runtime: { sendMessage: jest.fn().mockReturnValue(neverAnswered) } };
+  global.browser = { runtime: { sendMessage: jest.fn().mockResolvedValue({ tabId: TAB_ID }) } };
   global.maybeRunJob = jest.fn();
   global.sendStatus = jest.fn();
   jest.spyOn(console, "log").mockImplementation(() => {});
 }
 
-function answerTabIdRequestsWith(tabIdAnswer) {
+function setAnswerSendMessageCallInRequestOwnTabId(tabIdAnswer) {
   browser.runtime.sendMessage.mockResolvedValue(tabIdAnswer);
 }
 
-function loadContentScript() {
-  let contentScript;
-  jest.isolateModules(() => {
-    contentScript = require("../content-script");
-  });
-  return contentScript;
+function setErrorSendMessageCallInRequestOwnTabId(errorMessage) {
+  browser.runtime.sendMessage.mockRejectedValue(new Error(errorMessage));
 }
 
-let contentScript;
+function loadAndStartContentScript() {
+  let loadedModule;
+  jest.isolateModules(() => {
+    loadedModule = require("../content-script");
+  });
+  return loadedModule;
+}
+
+// hooks, run before each test starts and after each test finishes
 
 beforeEach(() => {
   jest.useFakeTimers();
   mockPageEnvironment();
-  contentScript = loadContentScript();
-  jest.clearAllMocks();  // forget the calls made while loading
-  answerTabIdRequestsWith({ tabId: TAB_ID });
 });
 
 afterEach(() => {
@@ -41,32 +43,30 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-describe("loading the script", () => {
-  test("asks the background for the tab id", () => {
-    loadContentScript();
-    expect(browser.runtime.sendMessage).toHaveBeenCalledWith(TAB_ID_REQUEST);
-  });
-});
+// test functions
 
 describe("requestOwnTabId", () => {
   test("returns the tab id from the background's answer", async () => {
+    const contentScript = loadAndStartContentScript();
     await expect(contentScript.requestOwnTabId()).resolves.toBe(TAB_ID);
-    expect(browser.runtime.sendMessage).toHaveBeenCalledWith(TAB_ID_REQUEST);
   });
 
   test("returns null when the answer has no tab id", async () => {
-    answerTabIdRequestsWith({ tabId: null });
+    setAnswerSendMessageCallInRequestOwnTabId({ tabId: null });
+    const contentScript = loadAndStartContentScript();
     await expect(contentScript.requestOwnTabId()).resolves.toBeNull();
   });
 
   test("returns null when there is no answer", async () => {
-    answerTabIdRequestsWith(undefined);
+    setAnswerSendMessageCallInRequestOwnTabId(undefined);
+    const contentScript = loadAndStartContentScript();
     await expect(contentScript.requestOwnTabId()).resolves.toBeNull();
   });
 });
 
 describe("scheduleMaybeRunJob", () => {
-  test("checks for a job only after the start delay", () => {
+  test("checks for a maybeRunJob start but only after the start delay passed", () => {
+    const contentScript = loadAndStartContentScript();
     contentScript.scheduleMaybeRunJob(TAB_ID);
     jest.advanceTimersByTime(contentScript.JOB_START_DELAY_MS - 1);
     expect(maybeRunJob).not.toHaveBeenCalled();
@@ -76,26 +76,27 @@ describe("scheduleMaybeRunJob", () => {
 });
 
 describe("startContentScript", () => {
-  test("checks for a job in its own tab", async () => {
-    await contentScript.startContentScript();
-    jest.runAllTimers();
+  test("checks for a correct startup: tab_id request and maybeRunJob call", async () => {
+    loadAndStartContentScript();
+    await jest.runAllTimersAsync();
+    expect(browser.runtime.sendMessage).toHaveBeenCalledWith(TAB_ID_REQUEST);
     expect(maybeRunJob).toHaveBeenCalledWith(TAB_ID);
     expect(sendStatus).not.toHaveBeenCalled();
   });
 
   test("reports and does nothing else when there is no tab id", async () => {
-    answerTabIdRequestsWith({});
-    await contentScript.startContentScript();
-    jest.runAllTimers();
+    setAnswerSendMessageCallInRequestOwnTabId({});
+    loadAndStartContentScript();
+    await jest.runAllTimersAsync();
     expect(sendStatus).toHaveBeenCalledWith(NO_TAB_ID_STATUS);
     expect(maybeRunJob).not.toHaveBeenCalled();
   });
 
-  test("reports an error when the background cannot be asked", async () => {
-    browser.runtime.sendMessage.mockRejectedValue(new Error("no receiver"));
-    await contentScript.startContentScript();
-    jest.runAllTimers();
-    expect(sendStatus).toHaveBeenCalledWith("[default-extension] error getting tabId: Error: no receiver");
+  test("reports an error when requestOwnTabId fails", async () => {
+    setErrorSendMessageCallInRequestOwnTabId(REQUEST_ERROR);
+    loadAndStartContentScript();
+    await jest.runAllTimersAsync();
+    expect(sendStatus).toHaveBeenCalledWith(TAB_ERROR_STATUS);
     expect(maybeRunJob).not.toHaveBeenCalled();
   });
 });

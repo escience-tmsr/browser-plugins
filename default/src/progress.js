@@ -23,6 +23,15 @@ const COLUMNS = [
   "pdf download status", "pdf download result (file)",
 ];
 
+// The columns of the CSV of saved PDFs (toCsv), and its line end, as in RFC 4180.
+const CSV_COLUMNS = ["DOI", "pdf download result (file)"];
+const CSV_LINE_END = "\r\n";
+
+// A CSV field: always quoted, as file names often contain spaces and may contain commas.
+function csvField(fieldValue) {
+  return `"${String(fieldValue).replace(/"/g, '""')}"`;
+}
+
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -92,6 +101,8 @@ class ProgressRecorder {
         linkStatus: null, linkResult: null,
         captureStatus: null, captureResult: null,
         downloadStatus: null, downloadResult: null,
+        // Not shown in the table: the full path of the saved PDF, for the CSV (toCsv).
+        downloadPath: null,
       });
     }
     return this._rows.get(key);
@@ -115,10 +126,11 @@ class ProgressRecorder {
     row.captureResult = targetUrl;
   }
 
-  recordPdfDownload(doi, pageCounter, status, filename) {
+  recordPdfDownload(doi, pageCounter, status, filename, savedPath = null) {
     const row = this._row(doi, pageCounter);
     row.downloadStatus = status;
     row.downloadResult = filename;
+    row.downloadPath = savedPath;
   }
 
   // A copy of the row (doi, pageCounter) as recorded so far, or null if there is none.
@@ -139,6 +151,26 @@ class ProgressRecorder {
     // The status tab reads a clicked row's DOI and page number from these attributes.
     const rowAttributes = `data-doi="${escapeHtml(row.doi)}" data-page-counter="${escapeHtml(String(row.pageCounter))}"`;
     return `<tr ${rowAttributes}>${cells}</tr>`;
+  }
+
+  // The saved PDFs as CSV: one line per DOI, in the order the DOIs were first recorded,
+  // with the full path of its saved PDF, or an empty path when none was saved. A DOI with
+  // more than one different saved PDF (for example one saved by the extension and one by
+  // hand) gets a line for each.
+  toCsv() {
+    const savedPathsByDoi = new Map();
+    for (const row of this._rows.values()) {
+      if (!savedPathsByDoi.has(row.doi)) savedPathsByDoi.set(row.doi, new Set());
+      if (row.downloadStatus?.startsWith(STATUS_SUCCESS) && row.downloadPath) {
+        savedPathsByDoi.get(row.doi).add(row.downloadPath);
+      }
+    }
+    const csvLines = [CSV_COLUMNS.map(csvField).join(",")];
+    for (const [doi, savedPaths] of savedPathsByDoi) {
+      const linePaths = savedPaths.size > 0 ? [...savedPaths] : [""];
+      for (const savedPath of linePaths) csvLines.push([doi, savedPath].map(csvField).join(","));
+    }
+    return csvLines.map((csvLine) => csvLine + CSV_LINE_END).join("");
   }
 
   toHtml() {
@@ -169,8 +201,8 @@ function recordPdfCapture(doi, pageCounter, status, targetUrl) {
   getRecorder().recordPdfCapture(doi, pageCounter, status, targetUrl);
 }
 
-function recordPdfDownload(doi, pageCounter, status, filename) {
-  getRecorder().recordPdfDownload(doi, pageCounter, status, filename);
+function recordPdfDownload(doi, pageCounter, status, filename, savedPath = null) {
+  getRecorder().recordPdfDownload(doi, pageCounter, status, filename, savedPath);
 }
 
 function recordedRow(doi, pageCounter) {
@@ -179,6 +211,10 @@ function recordedRow(doi, pageCounter) {
 
 function toHtml() {
   return getRecorder().toHtml();
+}
+
+function toCsv() {
+  return getRecorder().toCsv();
 }
 
 const exported = {
@@ -195,6 +231,8 @@ const exported = {
   recordPdfDownload,
   recordedRow,
   toHtml,
+  toCsv,
+  CSV_COLUMNS,
 };
 
 /* istanbul ignore next */

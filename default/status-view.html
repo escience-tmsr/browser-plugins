@@ -26,6 +26,7 @@
       .new-entries-button[hidden] { display: none; }
       h2 { font-size: 15px; margin: 10px 8px 6px; }
       .count { font-weight: normal; color: #555; }
+      .csv-button { margin-left: 8px; padding: 1px 8px; font-size: 12px; font-weight: normal; cursor: pointer; }
       table { border-collapse: collapse; width: 100%; }
       th, td {
         border: 1px solid #ccc; vertical-align: top; text-align: left;
@@ -42,7 +43,10 @@
   </head>
   <body>
     <section class="pane">
-      <h2>Progress <span class="count" id="progress-count"></span></h2>
+      <h2>Progress <span class="count" id="progress-count"></span>
+        <button type="button" class="csv-button" id="progress-csv"
+                title="The DOIs and the full paths of their saved PDFs, as a CSV file">Download CSV</button>
+      </h2>
       <div class="scroll-box">
         <div class="scroll" id="progress"></div>
         <button class="new-entries-button" id="progress-new" hidden></button>

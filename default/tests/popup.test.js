@@ -1,7 +1,6 @@
 // The popup's elements, as in popup.html.
 const POPUP_HTML = `
   <input type="text" id="doiInput">
-  <button id="saveLog"></button>
   <button id="startButton"></button>
   <button id="openStatusTable"></button>
   <p id="status"></p>`;
@@ -25,7 +24,10 @@ beforeEach(() => {
   window.close = jest.fn();
   require("../popup");
   document.getElementById("doiInput").value = DOI;
+  jest.spyOn(console, "error").mockImplementation(() => {});
 });
+
+afterEach(() => jest.restoreAllMocks());
 
 describe("pressing Enter in the DOI field", () => {
   test("processes the DOI, like the Process DOI button", () => {

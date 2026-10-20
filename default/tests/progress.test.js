@@ -296,7 +296,7 @@ describe("toCsv", () => {
   const OTHER_DOI = "10.2000/other";
   const THIRD_DOI = "10.3000/third";
   const SAVED_PATH = "/home/user/Downloads/" + FILENAME;
-  const HAND_SAVED_PATH = "/home/user/Downloads/Economic Inquiry - 2011, \"NASTINESS\".pdf";
+  const HAND_SAVED_PATH = "/home/user/Downloads/Economic Inquiry - 2011, \"MORAL_COSTS\".pdf";
   const HEADER_LINE = '"DOI","pdf download result (file)"';
 
   function csvLines(recorder) {
@@ -328,7 +328,7 @@ describe("toCsv", () => {
     recorder.recordPdfDownload(DOI, 2, SUCCESS, FILENAME, SAVED_PATH);
     recorder.recordPdfDownload(DOI, "1 (by hand)", `${SUCCESS}: downloaded by hand`, FILENAME, HAND_SAVED_PATH);
     expect(csvLines(recorder)).toHaveLength(3);
-    expect(csvLines(recorder)[2]).toBe(`"${DOI}","/home/user/Downloads/Economic Inquiry - 2011, ""NASTINESS"".pdf"`);
+    expect(csvLines(recorder)[2]).toBe(`"${DOI}","/home/user/Downloads/Economic Inquiry - 2011, ""MORAL_COSTS"".pdf"`);
   });
 
   test("has only the header when nothing was recorded", () => {

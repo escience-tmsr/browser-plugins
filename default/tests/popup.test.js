@@ -24,7 +24,10 @@ beforeEach(() => {
   window.close = jest.fn();
   require("../popup");
   document.getElementById("doiInput").value = DOI;
+  jest.spyOn(console, "error").mockImplementation(() => {});
 });
+
+afterEach(() => jest.restoreAllMocks());
 
 describe("pressing Enter in the DOI field", () => {
   test("processes the DOI, like the Process DOI button", () => {

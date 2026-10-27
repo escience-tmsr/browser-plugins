@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Default extension",
-  "version": "2.2",
+  "version": "3.0",
   "description": "Open a URL, find a link/button containing a phrase, and open the linked page.",
   "permissions": [
     "tabs",

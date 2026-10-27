@@ -1,7 +1,7 @@
 const { STATUS_SUCCESS, STATUS_NOT_FOUND } = require("../src/progress");
 const {
   STATUS_VIEW_PAGE, PROGRESS_ELEMENT_ID, LOG_ELEMENT_ID, SCROLL_BOTTOM_TOLERANCE_PX,
-  COUNT_ID_SUFFIX, NEW_ENTRIES_ID_SUFFIX, SCROLLED_CLASS, MIDDLE_MOUSE_BUTTON,
+  COUNT_ID_SUFFIX, NEW_ENTRIES_ID_SUFFIX, SCROLLED_CLASS, MIDDLE_MOUSE_BUTTON, CSV_BUTTON_ID,
 } = require("../src/status-view");
 
 const DOI = "10.1000/example";
@@ -27,7 +27,8 @@ function paneHtml(id) {
 }
 
 function setUpStatusPage() {
-  document.body.innerHTML = paneHtml(PROGRESS_ELEMENT_ID) + paneHtml(LOG_ELEMENT_ID);
+  document.body.innerHTML = paneHtml(PROGRESS_ELEMENT_ID) + paneHtml(LOG_ELEMENT_ID) +
+    `<button id="${CSV_BUTTON_ID}"></button>`;
 }
 
 function firstCell(html) {
@@ -383,5 +384,70 @@ describe("opening an address from the table in a watched tab", () => {
     statusView.replaceProgressTable(LINKED_TABLE_HTML);
     await clickInTable("click", { button: LEFT_MOUSE_BUTTON });
     expect(browser.runtime.sendMessage).toHaveBeenCalledWith(WATCH_MESSAGE);
+  });
+});
+
+describe("downloading the table as CSV", () => {
+  const CSV_TEXT = '"DOI","pdf download result (file)"\r\n"10.1000/example","/home/user/Downloads/a.pdf"\r\n';
+  const CSV_ADDRESS = "blob:moz-extension://extension-id/csv";
+  const DOWNLOAD_DATE = new Date(2026, 8, 29, 23, 59);
+
+  let clickedLinks;
+
+  // The text of a Blob; the test environment's Blob has no text() method.
+  function blobText(textBlob) {
+    return new Promise((resolve) => {
+      const blobReader = new FileReader();
+      blobReader.onload = () => resolve(blobReader.result);
+      blobReader.readAsText(textBlob);
+    });
+  }
+
+  beforeEach(async () => {
+    jest.useFakeTimers({ now: DOWNLOAD_DATE });
+    setUpStatusPage();
+    await statusView.initStatusView();
+    browser.runtime.sendMessage.mockResolvedValue({ csv: CSV_TEXT });
+    global.URL.createObjectURL = jest.fn().mockReturnValue(CSV_ADDRESS);
+    global.URL.revokeObjectURL = jest.fn();
+    clickedLinks = [];
+    jest.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function recordClick() {
+      clickedLinks.push({ href: this.href, download: this.download });
+    });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  test("names the file after the local date", () => {
+    expect(statusView.csvFileName(DOWNLOAD_DATE)).toBe("doi-progress-2026-09-29.csv");
+  });
+
+  test("the button saves the background's CSV as a file", async () => {
+    document.getElementById(CSV_BUTTON_ID).click();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(browser.runtime.sendMessage).toHaveBeenCalledWith({ type: "get-progress-csv" });
+    const [csvBlob] = URL.createObjectURL.mock.calls[0];
+    expect(csvBlob.type).toBe("text/csv");
+    jest.useRealTimers();
+    expect(await blobText(csvBlob)).toBe(CSV_TEXT);
+    expect(clickedLinks).toEqual([{ href: CSV_ADDRESS, download: "doi-progress-2026-09-29.csv" }]);
+    expect(document.querySelector("a[download]")).toBeNull();
+  });
+
+  test("frees the file's temporary address after a while", async () => {
+    await statusView.downloadProgressCsv();
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+    jest.runAllTimers();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(CSV_ADDRESS);
+  });
+
+  test("reports in the log when the background has no answer", async () => {
+    browser.runtime.sendMessage.mockRejectedValue(new Error("no receiver"));
+    await statusView.downloadProgressCsv();
+    expect(clickedLinks).toEqual([]);
+    expect(logElement().textContent).toBe("Could not get the progress table as CSV.");
   });
 });

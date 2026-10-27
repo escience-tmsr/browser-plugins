@@ -281,7 +281,6 @@ describe("processDownloadChange", () => {
     };
     global.browser = { downloads: { search: jest.fn().mockResolvedValue([downloadItem()]) } };
     global.captureSession = { doi: DOI, pageCounter: 1, lastMainUrl: PDF_URL };
-    global.downloadLog = "";
   });
 
   test("a download by hand in a watched tab is left to recordAssistedDownload, even during a capture", async () => {
@@ -295,9 +294,8 @@ describe("processDownloadChange", () => {
   test("a completed download is recorded, logged, and ends the capture", async () => {
     await processDownloadChange(stateChange("complete"));
     expect(browser.downloads.search).toHaveBeenCalledWith({ id: DOWNLOAD_ID });
-    expect(self.recordDownload).toHaveBeenCalledWith(STATUS_SUCCESS, pdfFilename(DOI));
+    expect(self.recordDownload).toHaveBeenCalledWith(STATUS_SUCCESS, pdfFilename(DOI), expect.objectContaining({ doi: DOI }), SAVED_PATH);
     expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching(SAVED_PATH));
-    expect(global.downloadLog).toBe(`${DOI},${SAVED_PATH}\n`);
     expect(global.captureSession).toBe(null);
   });
 
@@ -307,7 +305,6 @@ describe("processDownloadChange", () => {
     const reason = `Download interrupted (${CANCELLED})`;
     expect(self.recordDownload).toHaveBeenCalledWith(`${STATUS_ACCESS_ERROR}: ${reason}`, pdfFilename(DOI));
     expect(self.failCapture).toHaveBeenCalledWith(reason);
-    expect(global.downloadLog).toBe("");
     expect(global.captureSession).toBe(null);
   });
 
@@ -333,12 +330,11 @@ describe("processDownloadChange", () => {
     global.captureSession = null;
     await processDownloadChange(stateChange("complete"));
     expect(self.recordDownload).not.toHaveBeenCalled();
-    expect(global.downloadLog).toBe("");
   });
 
   test("a download that is not the captured PDF is ignored", async () => {
     browser.downloads.search.mockResolvedValue([
-      downloadItem({ mime: "text/csv", filename: "my_table.csv", url: "blob:other" })]);
+      downloadItem({ mime: "text/csv", filename: "doi-progress-2026-09-29.csv", url: "blob:other" })]);
     await processDownloadChange(stateChange("complete"));
     expect(self.recordDownload).not.toHaveBeenCalled();
     expect(global.captureSession).not.toBe(null);
@@ -786,6 +782,7 @@ describe("recording downloads by hand", () => {
       captureStatus: `${STATUS_SUCCESS}: ${VIEWED_BY_HAND}`,
       downloadStatus: `${STATUS_SUCCESS}: ${DOWNLOADED_BY_HAND}`, downloadResult: PDF_FILE_NAME,
     });
+    expect(manualRow().downloadPath).toBe(SAVED_PATH);
     expect(self.sendStatus).toHaveBeenCalledWith(`📥 PDF downloaded by hand for ${DOI}: ${PDF_FILE_NAME}`);
     expect(storedItems.assistedDownloads).toEqual({});
   });
@@ -1087,14 +1084,15 @@ describe("recording functions", () => {
   test("recordDownload records in the current session's row and pushes the table", () => {
     recordDownload(STATUS_SUCCESS, pdfFilename(session.doi));
     expect(self.recordPdfDownload).toHaveBeenCalledWith(
-      session.doi, session.pageCounter, STATUS_SUCCESS, pdfFilename(session.doi));
+      session.doi, session.pageCounter, STATUS_SUCCESS, pdfFilename(session.doi), null);
     expect(self.sendProgressUpdate).toHaveBeenCalledTimes(1);
   });
 
-  test("recordDownload can record in another session's row", () => {
-    recordDownload(STATUS_SUCCESS, pdfFilename(otherSession.doi), otherSession);
+  test("recordDownload can record in another session's row, with the saved PDF's full path", () => {
+    const savedPath = "/home/user/Downloads/" + pdfFilename(otherSession.doi);
+    recordDownload(STATUS_SUCCESS, pdfFilename(otherSession.doi), otherSession, savedPath);
     expect(self.recordPdfDownload).toHaveBeenCalledWith(
-      otherSession.doi, otherSession.pageCounter, STATUS_SUCCESS, pdfFilename(otherSession.doi));
+      otherSession.doi, otherSession.pageCounter, STATUS_SUCCESS, pdfFilename(otherSession.doi), savedPath);
   });
 
   test("recordCaptureFailure records the status with its reason and reports the failure", () => {
@@ -1197,13 +1195,3 @@ describe("failCapture", () => {
   });
 });
 
-describe("saveLog", () => {
-  test("saveLog", () => {
-    global.self = { sendStatus: jest.fn(), };
-    global.browser = { "downloads": { "download": jest.fn(), }}
-    const csvTextData = "col1,col2\n1,2";
-    saveLog(csvTextData);
-    expect(browser.downloads.download).toHaveBeenCalledTimes(1);
-    expect(self.sendStatus).toHaveBeenCalledTimes(1);
-  });
-});

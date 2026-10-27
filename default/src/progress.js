@@ -11,6 +11,9 @@ const STATUS_SUCCESS = "SUCCESS";
 const STATUS_NOT_FOUND = "NOT_FOUND";
 const STATUS_ACCESS_ERROR = "ACCESS_ERROR";
 const STATUS_SKIPPED = "SKIPPED";
+// Not in the doi_downloader vocabulary: a stage that has started but has no outcome yet,
+// such as startJob's placeholder row while the DOI page loads.
+const STATUS_PENDING = "PENDING";
 
 const COLUMNS = [
   "DOI", "page #",
@@ -34,6 +37,7 @@ function statusClass(status) {
   if (status.startsWith(STATUS_SUCCESS)) { return "status-success"; }
   if (status.startsWith(STATUS_NOT_FOUND) || status.startsWith(STATUS_ACCESS_ERROR)) { return "status-failed"; }
   if (status.startsWith(STATUS_SKIPPED)) { return "status-skipped"; }
+  if (status.startsWith(STATUS_PENDING)) { return "status-pending"; }
   return null;
 }
 
@@ -149,6 +153,7 @@ const exported = {
   STATUS_NOT_FOUND,
   STATUS_ACCESS_ERROR,
   STATUS_SKIPPED,
+  STATUS_PENDING,
   ProgressRecorder,
   getRecorder,
   recordPublisherPageAccess,

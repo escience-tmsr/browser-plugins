@@ -18,6 +18,7 @@ const {
   STATUS_NOT_FOUND: NOT_FOUND,
   STATUS_ACCESS_ERROR: ACCESS_ERROR,
   STATUS_SKIPPED: SKIPPED,
+  STATUS_PENDING: PENDING,
 } = require("../src/progress");
 
 describe("getRecorder", () => {
@@ -194,5 +195,13 @@ describe("toHtml", () => {
     recorder.recordPublisherPageAccess(DOI, 1, SKIPPED, "http://doi.org/" + DOI);
     const html = recorder.toHtml();
     expect(html.match(/class="status-skipped"/g).length).toBe(2);
+  });
+
+  test("colors PENDING (with a reason suffix) status-pending", () => {
+    const recorder = new progress.ProgressRecorder();
+    recorder.recordPublisherPageAccess(DOI, 1, `${PENDING}: waiting for the page to load`, "http://doi.org/" + DOI);
+    const html = recorder.toHtml();
+    expect(html.match(/class="status-pending"/g).length).toBe(2);
+    expect(html).not.toContain("status-skipped");
   });
 });

@@ -25,10 +25,10 @@ function setBadge(text, isError) {
 }
 
 /* istanbul ignore next */
-if (typeof self === "undefined") {
-  module.exports = { sendStatus, setBadge }; 
-} else {
-  module.exports = { sendStatus, setBadge };  
+if (typeof module !== "undefined") {
+  module.exports = { sendStatus, setBadge };
+}
+if (typeof self !== "undefined") {
   self.sendStatus = sendStatus;
   self.setBadge = setBadge;
 }

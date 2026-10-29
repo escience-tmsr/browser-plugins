@@ -274,7 +274,7 @@ describe("processDownloadChange", () => {
       ...STATUS_CONSTANTS,
       failCapture: jest.fn(),
       recordDownload: jest.fn(),
-      sendStatus: jest.fn(),
+      reportStatus: jest.fn(),
     };
     global.browser = { downloads: { search: jest.fn().mockResolvedValue([downloadItem()]) } };
     global.captureSession = { doi: DOI, pageCounter: 1, lastMainUrl: PDF_URL };
@@ -285,7 +285,7 @@ describe("processDownloadChange", () => {
     await processDownloadChange(stateChange("complete"));
     expect(browser.downloads.search).toHaveBeenCalledWith({ id: DOWNLOAD_ID });
     expect(self.recordDownload).toHaveBeenCalledWith(STATUS_SUCCESS, pdfFilename(DOI));
-    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching(SAVED_PATH));
+    expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching(SAVED_PATH));
     expect(global.downloadLog).toBe(`${DOI},${SAVED_PATH}\n`);
     expect(global.captureSession).toBe(null);
   });
@@ -341,7 +341,7 @@ describe("startJob", () => {
       openOrFocusStatusTab: jest.fn().mockResolvedValue({}),
       sanitizeDOI: (doi) => doi,
       seedPageLoadRow: jest.fn(),
-      sendStatus: jest.fn(),
+      reportStatus: jest.fn(),
     }
     global.browser = {
       tabs: { create: jest.fn() },
@@ -369,7 +369,7 @@ describe("startJob", () => {
     await Promise.resolve();  // let the rejection handler run
     expect(browser.tabs.create).toHaveBeenCalledWith({ url: DOI_URL, active: false });
     expect(browser.storage.local.set).toHaveBeenCalledTimes(1);
-    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching("^Could not open status table"), true);
+    expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching("^Could not open status table"), true);
   });
 
   test("shows a placeholder row for the DOI page", async() => {
@@ -388,7 +388,7 @@ describe("startJob", () => {
       throw new Error("something went wrong!");
     });
     await startJob(DOI);
-    expect(self.sendStatus).toHaveBeenCalledTimes(3);
+    expect(self.reportStatus).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -396,13 +396,13 @@ describe("armCaptureOnly", () => {
   test("armCaptureOnly", async() => {
     global.self = { 
       armCaptureBase: jest.fn(),
-      sendStatus: jest.fn(), 
+      reportStatus: jest.fn(), 
     }
     const tabId = 123;
     const expectedUrl = "https://domain/dir";
     const result = await armCaptureOnly(DOI, tabId, expectedUrl);
     expect(result).toBe(true);
-    expect(self.sendStatus).toHaveBeenCalledTimes(1);
+    expect(self.reportStatus).toHaveBeenCalledTimes(1);
     expect(self.armCaptureBase).toHaveBeenCalledWith(DOI, tabId, expectedUrl);
   });
 });
@@ -411,13 +411,13 @@ describe("armCaptureAndNavigate", () => {
   test("armCaptureAndNavigate", () => {
     global.self = {
       armCaptureBase: jest.fn(),
-      sendStatus: jest.fn(), 
+      reportStatus: jest.fn(), 
     };
     global.browser = {tabs: {update: jest.fn(), }};
     const tabId = 123;
     const expectedUrl = "https://domain/dir";
     const result = armCaptureAndNavigate(DOI, tabId, expectedUrl);
-    expect(self.sendStatus).toHaveBeenCalledTimes(1);
+    expect(self.reportStatus).toHaveBeenCalledTimes(1);
     expect(self.armCaptureBase).toHaveBeenCalledWith(DOI, tabId, expectedUrl);
     expect(browser.tabs.update).toHaveBeenCalledWith(tabId, {"url": expectedUrl});
   });
@@ -433,7 +433,7 @@ describe("armCaptureBase", () => {
       ...STATUS_CONSTANTS,
       failCapture: jest.fn(),
       recordCapture: jest.fn(),
-      sendStatus: jest.fn(),
+      reportStatus: jest.fn(),
     };
     global.captureSession = null;
     global.jobPageCounter = 0;
@@ -451,8 +451,8 @@ describe("armCaptureBase", () => {
     expect(global.captureSession.pageCounter).toBe(1);
     expect(returnedFileType).toBe("HTML");
     expect(self.failCapture).toHaveBeenCalledTimes(0);
-    expect(self.sendStatus).toHaveBeenCalledTimes(1);
-    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching("^Armed capture"));
+    expect(self.reportStatus).toHaveBeenCalledTimes(1);
+    expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching("^Armed capture"));
   });
 
   test("with automatic download", async () => {
@@ -480,7 +480,7 @@ describe("armCaptureBase", () => {
   test("reading html page", async () => {
     jest.useFakeTimers();
     const returnedFileType = await armCaptureBase(DOI, tabId, expectedUrl);
-    expect(self.sendStatus).toHaveBeenCalledTimes(1);
+    expect(self.reportStatus).toHaveBeenCalledTimes(1);
     global.captureSession.lastMainContentType = "text/html";
     self.looksPaywalledUrl = jest.fn().mockReturnValue(false);
     self.failCapture.mockClear();
@@ -654,7 +654,7 @@ describe("page-load and link-search recording", () => {
       recordPublisherPageAccess: jest.fn(),
       recordPdfLinkFound: jest.fn(),
       sendProgressUpdate: jest.fn(),
-      sendStatus: jest.fn(),
+      reportStatus: jest.fn(),
     };
     global.jobPageCounter = 0;
     global.pageLoadTimeoutId = null;
@@ -677,7 +677,7 @@ describe("page-load and link-search recording", () => {
     expect(self.recordPublisherPageAccess).toHaveBeenLastCalledWith(
       DOI, 1, `${STATUS_ACCESS_ERROR}: page did not load`, DOI_URL);
     expect(self.sendProgressUpdate).toHaveBeenCalledTimes(2);
-    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching(DOI_URL), true);
+    expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching(DOI_URL), true);
   });
 
   test("seedPageLoadRow cancels the timeout of an earlier job", () => {
@@ -729,20 +729,20 @@ describe("page-load and link-search recording", () => {
 
 describe("failCapture", () => {
   test("failCapture", () => {
-    global.self = { sendStatus: jest.fn(), };
+    global.self = { reportStatus: jest.fn(), };
     const text = "text";
     failCapture(text);
-    expect(self.sendStatus).toHaveBeenCalledTimes(1);
+    expect(self.reportStatus).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("saveLog", () => {
   test("saveLog", () => {
-    global.self = { sendStatus: jest.fn(), };
+    global.self = { reportStatus: jest.fn(), };
     global.browser = { "downloads": { "download": jest.fn(), }}
     const csvTextData = "col1,col2\n1,2";
     saveLog(csvTextData);
     expect(browser.downloads.download).toHaveBeenCalledTimes(1);
-    expect(self.sendStatus).toHaveBeenCalledTimes(1);
+    expect(self.reportStatus).toHaveBeenCalledTimes(1);
   });
 });

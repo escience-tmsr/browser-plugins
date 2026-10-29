@@ -11,7 +11,7 @@ document.getElementById("startButton").addEventListener("click", () => {
   const doi = document.getElementById("doiInput").value.trim();
 
   if (!doi) {
-    sendStatus("Please enter a DOI.", isError = true);
+    reportStatus("Please enter a DOI.", isError = true);
     return;
   }
 
@@ -23,7 +23,7 @@ document.getElementById("startButton").addEventListener("click", () => {
   }).then(() => {
     window.close();
   }).catch(err => {
-    sendStatus("Error starting job: " + err, isError = true);
+    reportStatus("Error starting job: " + err, isError = true);
   });
 
 });
@@ -32,7 +32,7 @@ document.getElementById("openStatusTable").addEventListener("click", () => {
   openOrFocusStatusTab().then(() => {
     window.close();
   }).catch(err => {
-    sendStatus("Error opening status table: " + err, isError = true);
+    reportStatus("Error opening status table: " + err, isError = true);
   });
 });
 
@@ -40,12 +40,12 @@ document.getElementById("saveLog").addEventListener("click", () => {
   browser.runtime.sendMessage({
     type: "save-log"
   }).catch(err => { 
-    sendStatus("could not save log!"), isError = true
+    reportStatus("could not save log!"), isError = true
   });
 });
 
 
-function sendStatus(text, isError = false) {
+function reportStatus(text, isError = false) {
   const element = document.getElementById("status");
   if (!element) return;
 

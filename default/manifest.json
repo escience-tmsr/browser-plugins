@@ -16,7 +16,7 @@
     "default_popup": "popup.html"
   },
   "background": {
-    "scripts": ["src/status.js",
+    "scripts": ["src/status-report.js",
                 "src/progress.js",
                 "src/status-view.js",
                 "src/background.functions.js",

@@ -80,7 +80,7 @@ ai_usage:
       default/tests/background.test.js and default/tests/content.test.js, and
       the step 6 changes to default/manifest.json, default/background.js,
       default/src/background.functions.js, default/src/progress.js,
-      default/src/content.functions.js, default/src/status.js,
+      default/src/content.functions.js, default/src/status-report.js,
       default/popup.js,
       default/status-view.html, default/src/status-view.js,
       default/tests/background.test.js, default/tests/status-view.test.js,

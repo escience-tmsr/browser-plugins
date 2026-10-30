@@ -1,14 +1,14 @@
-const { findElementByPhrase, performAction, recordProgress, sendStatus }  = require("../src/content.functions");
+const { findElementByPhrase, performAction, recordProgress, reportStatus }  = require("../src/content.functions");
 
 const DOI = "10.1234/doi";
 const LINK_URL = "https://publisher.example/article.pdf";
 
-describe("sendStatus", () => {
+describe("reportStatus", () => {
   test("report status", () => {
     global.browser = {"runtime": {"sendMessage": jest.fn()}};
     global.console = {"log": jest.fn()};
     const text = "text";
-    sendStatus(text);
+    reportStatus(text);
     expect(self.browser.runtime.sendMessage).toHaveBeenCalledTimes(1);
     expect(self.console.log).toHaveBeenCalledTimes(1);
   });
@@ -44,13 +44,13 @@ describe("findElementByPhrase", () => {
 
   test("search for non-matching phrases", () => {
     const phrases = ["ABC", "def"];
-    self.sendStatus = jest.fn();
+    self.reportStatus = jest.fn();
     let result = findElementByPhrase(phrases);
     expect(result).toBe(null);
     expect(document.querySelectorAll).toHaveBeenCalledTimes(phrases.length);
-    expect(self.sendStatus).toHaveBeenCalledTimes(phrases.length * 2);
+    expect(self.reportStatus).toHaveBeenCalledTimes(phrases.length * 2);
     phrases.forEach(phrase => {
-      expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching(phrase.toLowerCase()));
+      expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching(phrase.toLowerCase()));
     });
   });
   
@@ -58,7 +58,7 @@ describe("findElementByPhrase", () => {
     const phrases = ["innerText", "outerText"];
     result = findElementByPhrase(phrases);
     expect(result).not.toBe(null);
-    expect(self.sendStatus).toHaveBeenCalledTimes(2);
+    expect(self.reportStatus).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -81,7 +81,7 @@ describe("performAction", () => {
     const data = document.createElement("a");
     data.href = LINK_URL;
     self.findElementByPhrase = jest.fn().mockReturnValue(data);
-    self.sendStatus = jest.fn();
+    self.reportStatus = jest.fn();
     await performAction(job, myTabId);
     expect(browser.runtime.sendMessage).toHaveBeenCalledWith(
       { type: "record-progress", stage: "link", doi: DOI, found: true, url: LINK_URL });
@@ -111,9 +111,9 @@ describe("performAction", () => {
     data.innerText = "outerText";
     data.href = "href";
     self.findElementByPhrase = jest.fn().mockReturnValue(data);
-    self.sendStatus = jest.fn();
+    self.reportStatus = jest.fn();
     const result = await performAction(job, myTabId);
-    expect(self.sendStatus).toHaveBeenCalledTimes(2);
+    expect(self.reportStatus).toHaveBeenCalledTimes(2);
     expect(result).toBe("link found");
   });
   
@@ -125,8 +125,8 @@ describe("performAction", () => {
     browser.runtime.sendMessage = jest.fn().mockRejectedValue(new Error("error"));
     const result = await performAction(job, myTabId);
     expect(result).toBe("error");
-    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching("^Error asking"));
-    expect(self.sendStatus).toHaveBeenCalledTimes(3);
+    expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching("^Error asking"));
+    expect(self.reportStatus).toHaveBeenCalledTimes(3);
   });
   
   test("detect phrase in button: success", async() => {
@@ -143,7 +143,7 @@ describe("performAction", () => {
     });
     self.findElementByPhrase = jest.fn().mockReturnValue(data);
     const result = await performAction(job, myTabId);
-    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching("^Failed clicking"));
+    expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching("^Failed clicking"));
   });
   
   test("phrase not found in hyperlink or button", async() => {
@@ -168,7 +168,7 @@ describe("maybeRunJob", () => {
       "get": jest.fn().mockResolvedValue({"job": job}),
       "set": jest.fn().mockResolvedValue(),
     }}};
-    self.sendStatus = jest.fn();
+    self.reportStatus = jest.fn();
     self.performAction = jest.fn();
     self.recordProgress = jest.fn().mockResolvedValue();
   });
@@ -187,7 +187,7 @@ describe("maybeRunJob", () => {
   test("run successfully", async() => {
     const result = await maybeRunJob(myTabId);
     expect(result).toBe("finished job");
-    expect(self.sendStatus).toHaveBeenCalledTimes(2);
+    expect(self.reportStatus).toHaveBeenCalledTimes(2);
     expect(global.browser.storage.local.set).toHaveBeenCalledTimes(1);
    });
 
@@ -210,13 +210,13 @@ describe("maybeRunJob", () => {
     });
     const result = await maybeRunJob(myTabId);
     jest.runAllTimers();
-    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching("^Error while searching link"));
+    expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching("^Error while searching link"));
     jest.useRealTimers();
   });
 
   test("cannot read job variable", async() => {
     global.browser.storage.local.get = jest.fn().mockRejectedValue(new Error("error"));
     const result = await maybeRunJob(myTabId);
-    expect(self.sendStatus).toHaveBeenCalledWith(expect.stringMatching("error reading job"));
+    expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching("error reading job"));
   });
 });

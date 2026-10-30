@@ -1,6 +1,6 @@
 browser.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "status") {
-    const element = document.getElementById("status");
+    const element = document.getElementById("statusLine");
     if (element) {
       element.textContent = msg.text;
     }
@@ -46,7 +46,7 @@ document.getElementById("saveLog").addEventListener("click", () => {
 
 
 function reportStatus(text, isError = false) {
-  const element = document.getElementById("status");
+  const element = document.getElementById("statusLine");
   if (!element) return;
 
   element.textContent = text;

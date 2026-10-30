@@ -1,4 +1,4 @@
-const { reportStatus, BADGE_TEXT, ERROR_COLOR, LOG_PREFIX, NORMAL_COLOR, STATUS_MESSAGE_TYPE } = require("../src/status");
+const { reportStatus, BADGE_TEXT, ERROR_COLOR, LOG_PREFIX, NORMAL_COLOR, STATUS_MESSAGE_TYPE } = require("../src/status-report");
 
 // constants
 

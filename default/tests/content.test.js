@@ -1,4 +1,9 @@
-const { findElementByPhrase, performAction, recordProgress, reportStatus }  = require("../src/content.functions");
+const {
+  findElementByPhrase, followPdfLinkOrButton, maybeRunJob, recordProgress, reportStatus,
+  PROGRESS_STAGE_PAGE, PROGRESS_STAGE_LINK,
+  ACTION_RESULT_LINK_FOUND, ACTION_RESULT_BUTTON_FOUND, ACTION_RESULT_NOT_FOUND, ACTION_RESULT_ERROR,
+  JOB_RESULT_FINISHED, JOB_RESULT_PROCESSED, JOB_RESULT_INVALID,
+} = require("../src/content.functions");
 
 const DOI = "10.1234/doi";
 const LINK_URL = "https://publisher.example/article.pdf";
@@ -17,19 +22,19 @@ describe("reportStatus", () => {
 describe("recordProgress", () => {
   test("sends the stage, doi and details to the background", async () => {
     global.browser = {"runtime": {"sendMessage": jest.fn().mockResolvedValue()}};
-    await recordProgress("link", DOI, { found: true, url: LINK_URL });
+    await recordProgress(PROGRESS_STAGE_LINK, DOI, { found: true, url: LINK_URL });
     expect(browser.runtime.sendMessage).toHaveBeenCalledWith(
-      { type: "record-progress", stage: "link", doi: DOI, found: true, url: LINK_URL });
+      { type: "record-progress", stage: PROGRESS_STAGE_LINK, doi: DOI, found: true, url: LINK_URL });
   });
 
   test("resolves when the background does not answer", async () => {
     global.browser = {"runtime": {"sendMessage": jest.fn().mockRejectedValue(new Error("error"))}};
-    await expect(recordProgress("page", DOI, { url: LINK_URL })).resolves.toBeUndefined();
+    await expect(recordProgress(PROGRESS_STAGE_PAGE, DOI, { url: LINK_URL })).resolves.toBeUndefined();
   });
 
   test("resolves when messaging is not available", async () => {
     global.browser = {};
-    await expect(recordProgress("page", DOI, { url: LINK_URL })).resolves.toBeUndefined();
+    await expect(recordProgress(PROGRESS_STAGE_PAGE, DOI, { url: LINK_URL })).resolves.toBeUndefined();
   });
 });
 
@@ -47,7 +52,7 @@ describe("findElementByPhrase", () => {
     self.reportStatus = jest.fn();
     let result = findElementByPhrase(phrases);
     expect(result).toBe(null);
-    expect(document.querySelectorAll).toHaveBeenCalledTimes(phrases.length);
+    expect(document.querySelectorAll).toHaveBeenCalledTimes(1);
     expect(self.reportStatus).toHaveBeenCalledTimes(phrases.length * 2);
     phrases.forEach(phrase => {
       expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching(phrase.toLowerCase()));
@@ -62,7 +67,7 @@ describe("findElementByPhrase", () => {
   });
 });
 
-describe("performAction", () => {
+describe("followPdfLinkOrButton", () => {
   const job = {"phrase": "abc", "doi": DOI}
   const myTabId = 0;
 
@@ -82,28 +87,28 @@ describe("performAction", () => {
     data.href = LINK_URL;
     self.findElementByPhrase = jest.fn().mockReturnValue(data);
     self.reportStatus = jest.fn();
-    await performAction(job, myTabId);
+    await followPdfLinkOrButton(job, myTabId);
     expect(browser.runtime.sendMessage).toHaveBeenCalledWith(
-      { type: "record-progress", stage: "link", doi: DOI, found: true, url: LINK_URL });
+      { type: "record-progress", stage: PROGRESS_STAGE_LINK, doi: DOI, found: true, url: LINK_URL });
     expect(sentMessageTypes()).toEqual(["record-progress", "download_pdf_via_tab_capture"]);
   });
 
   // The capture is armed for this tab only: a button that opens the PDF in a new tab
   // (window.open, or a form with target="_blank") is not captured, and the capture is
-  // recorded as failed when it times out. See the comment in performAction.
+  // recorded as failed when it times out. See the comment on clickButton.
   test("a found button is recorded without a url before the capture is armed", async() => {
     self.findElementByPhrase = jest.fn().mockReturnValue(document.createElement("button"));
-    await performAction(job, myTabId);
+    await followPdfLinkOrButton(job, myTabId);
     expect(browser.runtime.sendMessage).toHaveBeenCalledWith(
-      { type: "record-progress", stage: "link", doi: DOI, found: true, url: null });
+      { type: "record-progress", stage: PROGRESS_STAGE_LINK, doi: DOI, found: true, url: null });
     expect(sentMessageTypes()).toEqual(["record-progress", "arm_capture_for_tab"]);
   });
 
   test("a missing link is recorded as not found", async() => {
     self.findElementByPhrase = jest.fn().mockReturnValue(null);
-    await performAction(job, myTabId);
+    await followPdfLinkOrButton(job, myTabId);
     expect(browser.runtime.sendMessage).toHaveBeenCalledWith(
-      { type: "record-progress", stage: "link", doi: DOI, found: false, url: null });
+      { type: "record-progress", stage: PROGRESS_STAGE_LINK, doi: DOI, found: false, url: null });
   });
 
   test("detect phrase in hyperlink: success", async() => {
@@ -112,9 +117,9 @@ describe("performAction", () => {
     data.href = "href";
     self.findElementByPhrase = jest.fn().mockReturnValue(data);
     self.reportStatus = jest.fn();
-    const result = await performAction(job, myTabId);
+    const result = await followPdfLinkOrButton(job, myTabId);
     expect(self.reportStatus).toHaveBeenCalledTimes(2);
-    expect(result).toBe("link found");
+    expect(result).toBe(ACTION_RESULT_LINK_FOUND);
   });
   
   test("detect phrase in hyperlink: error", async() => {
@@ -123,8 +128,8 @@ describe("performAction", () => {
     data.href = "href";
     self.findElementByPhrase = jest.fn().mockReturnValue(data);
     browser.runtime.sendMessage = jest.fn().mockRejectedValue(new Error("error"));
-    const result = await performAction(job, myTabId);
-    expect(result).toBe("error");
+    const result = await followPdfLinkOrButton(job, myTabId);
+    expect(result).toBe(ACTION_RESULT_ERROR);
     expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching("^Error asking"));
     expect(self.reportStatus).toHaveBeenCalledTimes(3);
   });
@@ -132,8 +137,8 @@ describe("performAction", () => {
   test("detect phrase in button: success", async() => {
     const data = document.createElement("button");
     self.findElementByPhrase = jest.fn().mockReturnValue(data);
-    const result = await performAction(job, myTabId);
-    expect(result).toBe("button found");
+    const result = await followPdfLinkOrButton(job, myTabId);
+    expect(result).toBe(ACTION_RESULT_BUTTON_FOUND);
   });
   
   test("detect phrase in button: error", async() => {
@@ -142,14 +147,14 @@ describe("performAction", () => {
       throw new Error("error");
     });
     self.findElementByPhrase = jest.fn().mockReturnValue(data);
-    const result = await performAction(job, myTabId);
+    const result = await followPdfLinkOrButton(job, myTabId);
     expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching("^Failed clicking"));
   });
   
   test("phrase not found in hyperlink or button", async() => {
     self.findElementByPhrase = jest.fn().mockReturnValue(null);
-    result = await performAction(job, myTabId);
-    expect(result).toBe("not found");
+    result = await followPdfLinkOrButton(job, myTabId);
+    expect(result).toBe(ACTION_RESULT_NOT_FOUND);
   });
 });
 
@@ -169,13 +174,13 @@ describe("maybeRunJob", () => {
       "set": jest.fn().mockResolvedValue(),
     }}};
     self.reportStatus = jest.fn();
-    self.performAction = jest.fn();
+    self.followPdfLinkOrButton = jest.fn();
     self.recordProgress = jest.fn().mockResolvedValue();
   });
 
   test("reports the page it landed on", async() => {
     await maybeRunJob(myTabId);
-    expect(self.recordProgress).toHaveBeenCalledWith("page", DOI, { url: global.location.href });
+    expect(self.recordProgress).toHaveBeenCalledWith(PROGRESS_STAGE_PAGE, DOI, { url: global.location.href });
   });
 
   test("does not report a page it already processed", async() => {
@@ -186,7 +191,7 @@ describe("maybeRunJob", () => {
 
   test("run successfully", async() => {
     const result = await maybeRunJob(myTabId);
-    expect(result).toBe("finished job");
+    expect(result).toBe(JOB_RESULT_FINISHED);
     expect(self.reportStatus).toHaveBeenCalledTimes(2);
     expect(global.browser.storage.local.set).toHaveBeenCalledTimes(1);
    });
@@ -195,22 +200,31 @@ describe("maybeRunJob", () => {
     job.usedUrls.push(global.location.href);
     global.browser.storage.local.get = jest.fn().mockResolvedValue({"job": job});
     const result = await maybeRunJob(myTabId);
-    expect(result).toBe("processed job");
+    expect(result).toBe(JOB_RESULT_PROCESSED);
    });
 
   test("invalid myTabId", async() => {
     const result = await maybeRunJob(myTabId + "invalid");
-    expect(result).toBe("invalid job");
+    expect(result).toBe(JOB_RESULT_INVALID);
   });
   
   test("running job fails", async() => {
     jest.useFakeTimers();
-    self.performAction = jest.fn().mockImplementation(() => {
+    self.followPdfLinkOrButton = jest.fn().mockImplementation(() => {
       throw new Error("error");
     });
     const result = await maybeRunJob(myTabId);
     jest.runAllTimers();
     expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching("^Error while searching link"));
+    jest.useRealTimers();
+  });
+
+  test("reports a search that fails after it has started", async() => {
+    jest.useFakeTimers();
+    self.followPdfLinkOrButton = jest.fn().mockRejectedValue(new Error("page changed"));
+    await maybeRunJob(myTabId);
+    await jest.runAllTimersAsync();
+    expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching("^Error while searching link: page changed"));
     jest.useRealTimers();
   });
 

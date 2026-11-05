@@ -6,9 +6,9 @@ browser.runtime.sendMessage({ type: "what-is-my-tabid" })
     if (myTabId != null) {
       window.setTimeout(() => maybeRunJob(myTabId), 500);
     } else {
-      reportStatus("[default-extension] no tabId available, doing nothing");
+      reportStatus("no tabId available, doing nothing");
     }
   })
   .catch(err => {
-    reportStatus(`[default-extension] error getting tabId: ${err}`);
+    reportStatus(`error getting tabId: ${err}`);
   });

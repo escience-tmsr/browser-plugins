@@ -1,9 +1,9 @@
-function sendStatus(text) {
+function reportStatus(text) {
   try { browser.runtime.sendMessage({ type: "status", text }); } catch (_) {}
   console.log("[default-extension]", text);
 }
 
-self.sendStatus = sendStatus;
+self.reportStatus = reportStatus;
 
 // Report a page load or a link search to the background, which adds the page number
 // and records it in the progress table. Resolves once the background has recorded it.
@@ -19,7 +19,7 @@ self.recordProgress = recordProgress;
 function findElementByPhrase(phrases) {
   for (const phrase of phrases) {
     const needle = phrase.toLowerCase();
-    self.sendStatus(`[default-extension] searching for phrase: ${needle}`);
+    self.reportStatus(`[default-extension] searching for phrase: ${needle}`);
   
     const elements = Array.from(document.querySelectorAll("a, button"));
     for (const el of elements) {
@@ -29,24 +29,24 @@ function findElementByPhrase(phrases) {
   
       const combined = (text + " " + aria + " " + title).toLowerCase();
       if (combined.includes(needle)) {
-        self.sendStatus(`[default-extension] found key "${needle}", tag: ${el.tagName}, target: ${el.href}`);
+        self.reportStatus(`[default-extension] found key "${needle}", tag: ${el.tagName}, target: ${el.href}`);
         return el;
       }
     }
   
-    self.sendStatus(`[default-extension] no element found for phrase: ${phrase}`);
+    self.reportStatus(`[default-extension] no element found for phrase: ${phrase}`);
   }
   return null;
 }
 
 self.findElementByPhrase = findElementByPhrase;
 async function performAction(job, myTabId) {
-  self.sendStatus("Entering performAction...")
+  self.reportStatus("Entering performAction...")
   const phrase = job.phrase;
   const el = self.findElementByPhrase(phrase);
 
   if (!el) {
-    self.sendStatus(`❌ No link or button found containing "${phrase}"`);
+    self.reportStatus(`❌ No link or button found containing "${phrase}"`);
     await self.recordProgress("link", job.doi, { found: false, url: null });
     return "not found";
   }
@@ -57,7 +57,7 @@ async function performAction(job, myTabId) {
 
   if (tag === "a" && el.href) {
     const pdfUrl = el.href;
-    self.sendStatus(`Found candidate link for "${phrase}", processing…`);
+    self.reportStatus(`Found candidate link for "${phrase}", processing…`);
 
     try {
       await browser.runtime.sendMessage({
@@ -68,13 +68,13 @@ async function performAction(job, myTabId) {
       });
       return "link found";
     } catch(err) {
-      self.sendStatus(`Error asking add-on to capture PDF: ${err}`);
+      self.reportStatus(`Error asking add-on to capture PDF: ${err}`);
       return "error";
     };
 
   }
 
-  self.sendStatus("Arming capture…");
+  self.reportStatus("Arming capture…");
 
   // The capture only watches this tab. If the button opens the PDF in a new tab
   // (window.open, or a form with target="_blank"), the PDF is not captured and the
@@ -85,11 +85,11 @@ async function performAction(job, myTabId) {
     tabId: myTabId
   });
 
-  self.sendStatus(`Clicking "${phrase}" button…`);
+  self.reportStatus(`Clicking "${phrase}" button…`);
   try {
     el.click();
   } catch (e) {
-    self.sendStatus(`Failed clicking element: ${e.message}`);
+    self.reportStatus(`Failed clicking element: ${e.message}`);
   }
   return "button found";
 }
@@ -100,16 +100,16 @@ async function maybeRunJob(myTabId) {
   try {
     result = await browser.storage.local.get("job")
   } catch(err) {
-    self.sendStatus(`[default-extension] error reading job from storage: ${err}`);
+    self.reportStatus(`[default-extension] error reading job from storage: ${err}`);
     return;
   };
   const job = result.job;
   if (!job || job.tabId !== myTabId) return "invalid job";
-  self.sendStatus(`Entered maybeRunJob, tabId is ${myTabId}, url is ${job.url}`);
+  self.reportStatus(`Entered maybeRunJob, tabId is ${myTabId}, url is ${job.url}`);
 
   const here = location.href;
   if (job.usedUrls.includes(here)) {
-    self.sendStatus(`Skipping: already processed this page.`);
+    self.reportStatus(`Skipping: already processed this page.`);
     return "processed job";
   }
 
@@ -117,25 +117,25 @@ async function maybeRunJob(myTabId) {
   await browser.storage.local.set({ job });
   await self.recordProgress("page", job.doi, { url: here });
 
-  self.sendStatus("[default-extension] tabId matches job, running job");
+  self.reportStatus("[default-extension] tabId matches job, running job");
 
   window.setTimeout(() => {
     try {
       self.performAction(job, myTabId);
     } catch (e) {
-      self.sendStatus(`Error while searching link: ${e.message}`);
+      self.reportStatus(`Error while searching link: ${e.message}`);
     }
   }, 1000);
   return "finished job"
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { findElementByPhrase, maybeRunJob, performAction, recordProgress, sendStatus, };
+  module.exports = { findElementByPhrase, maybeRunJob, performAction, recordProgress, reportStatus, };
 }
 if (typeof self !== "undefined") {
   self.findElementByPhrase = findElementByPhrase;
   self.maybeRunJob = maybeRunJob;
   self.performAction = performAction;
   self.recordProgress = recordProgress;
-  self.sendStatus = sendStatus;
+  self.reportStatus = reportStatus;
 }

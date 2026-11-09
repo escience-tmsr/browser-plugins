@@ -12,12 +12,12 @@ browser.webRequest.onHeadersReceived.addListener(
 
     captureSession.sawPdf = true;
     clearTimeout(captureSession.timeoutId);
-    self.sendStatus("PDF response detected; capturing…");
+    self.reportStatus("PDF response detected; capturing…");
     self.recordCapture(self.STATUS_SUCCESS, details.url);
 
     if (retrievingAttachment(details)) {
       captureSession.expectBrowserDownload = true;
-      sendStatus(`Server forces PDF download; will use browser download to avoid duplicate (${captureSession.pageCounter})`);
+      reportStatus(`Server forces PDF download; will use browser download to avoid duplicate (${captureSession.pageCounter})`);
     };
 
     self.processIncomingPdfData(details);
@@ -34,7 +34,7 @@ browser.runtime.onMessage.addListener((msg, sender) => {
   if (!msg || !msg.type) return;
 
   if (msg.type === "status") {
-    sendStatus(`status: ${msg.text}`);
+    reportStatus(`status: ${msg.text}`);
     return;
   }
 
@@ -50,7 +50,7 @@ browser.runtime.onMessage.addListener((msg, sender) => {
   }
 
   if (msg.type !== "what-is-my-tabid") {
-    sendStatus(`received message: ${msg.type}`);
+    reportStatus(`received message: ${msg.type}`);
   } else {
     // message sent for every tab: do not report
     const tabId = sender && sender.tab ? sender.tab.id : null;
@@ -64,7 +64,7 @@ browser.runtime.onMessage.addListener((msg, sender) => {
   if (msg.type === "arm_capture_for_tab") return armCaptureOnly(msg.doi, msg.tabId, msg.expectedUrl ?? null);
 
   if (msg.type === "open-url" && msg.url) {
-    self.sendStatus("Opening link in new tab…");
+    self.reportStatus("Opening link in new tab…");
     return browser.tabs.create({ url: msg.url });
   }
 
@@ -73,15 +73,15 @@ browser.runtime.onMessage.addListener((msg, sender) => {
     const doi = msg.doi || null;
 
     if (!tabId) {
-      self.sendStatus("Cannot download: missing tabId.", isError = false);
+      self.reportStatus("Cannot download: missing tabId.", isError = false);
       return;
     }
     if (captureSession !== null && msg.pdfUrl === captureSession.lastMainUrl) {
-      self.sendStatus(`skipping already processed url: ${msg.pdfUrl}`);
+      self.reportStatus(`skipping already processed url: ${msg.pdfUrl}`);
       return;
     }
     return armCaptureAndNavigate(doi, tabId, msg.pdfUrl);
   }
 
-  self.sendStatus(`onMessage: cannot process message: ${msg.type}`, isError = false);
+  self.reportStatus(`onMessage: cannot process message: ${msg.type}`, isError = false);
 });

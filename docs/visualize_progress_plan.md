@@ -21,7 +21,7 @@ on first use.
 ## 2. Popup/status-tab parity: a log panel
 
 Today, closing the popup loses everything except the toolbar badge (the green/red dot
-`setBadge` sets) — the popup's `#status` line is fed by one-line `sendStatus()` narration
+`showStatusOnBadge` sets) — the popup's `#status` line is fed by one-line `reportStatus()` narration
 calls scattered through `background.functions.js`/`content.functions.js`, and that
 listener only exists while the popup's DOM is alive.
 
@@ -34,7 +34,7 @@ showed rather than a second, narrower view:
   appended to a small running log panel alongside the table.
 
 This needs no new recording calls added to `background.js`/`content.functions.js`: those
-`sendStatus()` calls already broadcast `{type: "status", ...}`; only the new tab needs a
+`reportStatus()` calls already broadcast `{type: "status", ...}`; only the new tab needs a
 second listener for it. `status-view.html` gets a log container element in addition to
 the table.
 

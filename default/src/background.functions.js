@@ -89,7 +89,7 @@ function processDownloadChange(delta) {
     if (!item || captureSession === null || !isCaptureDownload(item)) return;
     const basename = item.filename.split(/[\\/]/).pop();
     if (state === "complete") {
-      self.sendStatus(`✅ Saved PDF to ${item.filename}`);
+      self.reportStatus(`✅ Saved PDF to ${item.filename}`);
       self.recordDownload(self.STATUS_SUCCESS, basename);
       downloadLog = downloadLog.concat(captureSession.doi, ",", item.filename, "\n");
     } else {
@@ -157,18 +157,18 @@ function armCaptureBase(doi, tabId, expectedUrl) {
       targetType = "HTML";
     }
   }
-  self.sendStatus(`Armed capture; navigating to ${targetType}… (${captureSession.pageCounter})`);
+  self.reportStatus(`Armed capture; navigating to ${targetType}… (${captureSession.pageCounter})`);
   return targetType;
 }
 
 function armCaptureAndNavigate(doi, tabId, expectedUrl) {
-  self.sendStatus(`Entering armCaptureAndNavigate for ${expectedUrl}`);
+  self.reportStatus(`Entering armCaptureAndNavigate for ${expectedUrl}`);
   self.armCaptureBase(doi, tabId, expectedUrl);
   return browser.tabs.update(tabId, { url: expectedUrl });
 }
 
 function armCaptureOnly(doi, tabId, expectedUrl = null) {
-  self.sendStatus(`Entering armCaptureOnly for ${expectedUrl}`);
+  self.reportStatus(`Entering armCaptureOnly for ${expectedUrl}`);
   self.armCaptureBase(doi, tabId, expectedUrl);
   return Promise.resolve(true);
 }
@@ -189,7 +189,7 @@ function removeSlashes(doi) {
 }
 
 function startJob(doi) {
-  self.sendStatus("Entering startJob");
+  self.reportStatus("Entering startJob");
   const normalizedDoi = sanitizeDOI(doi) || null;
   const url = "https://doi.org/" + normalizedDoi;
 
@@ -198,7 +198,7 @@ function startJob(doi) {
   // Keep the status tab in view: open the DOI page in a background tab, where it
   // loads and runs the content script as usual.
   self.openOrFocusStatusTab().catch(err => {
-    self.sendStatus(`Could not open status table: ${err && err.message ? err.message : err}`, isError = true);
+    self.reportStatus(`Could not open status table: ${err && err.message ? err.message : err}`, isError = true);
   });
   return browser.tabs.create({ url, active: false }).then(tab => {
     const job = {
@@ -209,10 +209,10 @@ function startJob(doi) {
       tabId: tab.id
     };
 
-    self.sendStatus(`Opened DOI page in tab ${tab.id}. Looking for "${phrase}" link…`);
+    self.reportStatus(`Opened DOI page in tab ${tab.id}. Looking for "${phrase}" link…`);
     return browser.storage.local.set({ job });
   }).catch(err => {
-    self.sendStatus(`Could not start job: ${err && err.message ? err.message : err}`, isError = true);
+    self.reportStatus(`Could not start job: ${err && err.message ? err.message : err}`, isError = true);
   });
 }
 
@@ -222,7 +222,7 @@ function looksPaywalledUrl(u) {
 }
 
 function failCapture(reason) {
-  self.sendStatus(`❌ PDF download failed: ${reason}`, isError = true);
+  self.reportStatus(`❌ PDF download failed: ${reason}`, isError = true);
   return
 }
 
@@ -258,7 +258,7 @@ function seedPageLoadRow(doi, doiUrl) {
     pageLoadTimeoutId = null;
     self.recordPublisherPageAccess(doi, 1, `${self.STATUS_ACCESS_ERROR}: page did not load`, doiUrl);
     self.sendProgressUpdate();
-    self.sendStatus(`❌ DOI page did not load: ${doiUrl}`, isError = true);
+    self.reportStatus(`❌ DOI page did not load: ${doiUrl}`, isError = true);
   }, PAGE_LOAD_TIMEOUT_MS);
 }
 
@@ -288,7 +288,7 @@ function saveLog(downloadLogCsv) {
     filename: "my_table.csv",
     conflictAction: "uniquify"
   });
-  self.sendStatus("Saved logfile to Downloads directory");
+  self.reportStatus("Saved logfile to Downloads directory");
 }
 
 if (typeof module !== "undefined") {

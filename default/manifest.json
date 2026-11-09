@@ -17,7 +17,7 @@
   },
   "background": {
     "scripts": ["src/status-report.js",
-                "src/progress.js",
+                "src/progress-table.js",
                 "src/status-view.js",
                 "src/background.functions.js",
                 "background.js"],

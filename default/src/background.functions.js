@@ -228,16 +228,16 @@ function failCapture(reason) {
 
 // Push the current progress table to the status tab, if it is open.
 function sendProgressUpdate() {
-  browser.runtime.sendMessage({ type: "progress-update", html: self.toHtml() }).catch(() => {});
+  browser.runtime.sendMessage({ type: "progress-update", html: self.renderProgressTableHtml() }).catch(() => {});
 }
 
 function recordCapture(status, targetUrl, session = captureSession) {
-  self.recordPdfCapture(session.doi, session.pageCounter, status, targetUrl);
+  self.recordStage(session.doi, session.pageCounter, self.STAGE_PDF_CAPTURE, status, targetUrl);
   self.sendProgressUpdate();
 }
 
 function recordDownload(status, filename, session = captureSession) {
-  self.recordPdfDownload(session.doi, session.pageCounter, status, filename);
+  self.recordStage(session.doi, session.pageCounter, self.STAGE_PDF_DOWNLOAD, status, filename);
   self.sendProgressUpdate();
 }
 
@@ -252,11 +252,11 @@ function recordCaptureFailure(status, reason, targetUrl) {
 // confirms the page in time (see recordContentProgress).
 function seedPageLoadRow(doi, doiUrl) {
   clearTimeout(pageLoadTimeoutId);
-  self.recordPublisherPageAccess(doi, 1, `${self.STATUS_PENDING}: ${PAGE_LOAD_PENDING_REASON}`, doiUrl);
+  self.recordStage(doi, 1, self.STAGE_PUBLISHER_PAGE, `${self.STATUS_PENDING}: ${PAGE_LOAD_PENDING_REASON}`, doiUrl);
   self.sendProgressUpdate();
   pageLoadTimeoutId = setTimeout(() => {
     pageLoadTimeoutId = null;
-    self.recordPublisherPageAccess(doi, 1, `${self.STATUS_ACCESS_ERROR}: page did not load`, doiUrl);
+    self.recordStage(doi, 1, self.STAGE_PUBLISHER_PAGE, `${self.STATUS_ACCESS_ERROR}: page did not load`, doiUrl);
     self.sendProgressUpdate();
     self.reportStatus(`❌ DOI page did not load: ${doiUrl}`, isError = true);
   }, PAGE_LOAD_TIMEOUT_MS);
@@ -269,10 +269,10 @@ function recordContentProgress(msg) {
   if (msg.stage === "page") {
     clearTimeout(pageLoadTimeoutId);
     pageLoadTimeoutId = null;
-    self.recordPublisherPageAccess(msg.doi, pageCounter, self.STATUS_SUCCESS, msg.url);
+    self.recordStage(msg.doi, pageCounter, self.STAGE_PUBLISHER_PAGE, self.STATUS_SUCCESS, msg.url);
   } else if (msg.stage === "link") {
     const status = msg.found ? self.STATUS_SUCCESS : self.STATUS_NOT_FOUND;
-    self.recordPdfLinkFound(msg.doi, pageCounter, status, msg.url);
+    self.recordStage(msg.doi, pageCounter, self.STAGE_PDF_LINK, status, msg.url);
   } else {
     return;
   }

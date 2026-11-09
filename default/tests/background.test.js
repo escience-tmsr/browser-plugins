@@ -1,6 +1,10 @@
 const { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureBase, failCapture, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange, processIncomingPdfData, recordCapture, recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment, retrievingPdfFile, sanitizeDOI, seedPageLoadRow, sendProgressUpdate, startJob, storeDetailsInSessionData }  = require("../src/background.functions");
-const { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED, STATUS_PENDING } = require("../src/progress");
+const {
+  STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED, STATUS_PENDING,
+  STAGE_PUBLISHER_PAGE, STAGE_PDF_LINK, STAGE_PDF_CAPTURE, STAGE_PDF_DOWNLOAD,
+} = require("../src/progress-table");
 const STATUS_CONSTANTS = { STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED, STATUS_PENDING };
+const STAGE_CONSTANTS = { STAGE_PUBLISHER_PAGE, STAGE_PDF_LINK, STAGE_PDF_CAPTURE, STAGE_PDF_DOWNLOAD };
 
 // DOI used throughout these tests, and the doi.org address startJob opens for it.
 const DOI = "10.1234/doi";
@@ -591,10 +595,10 @@ describe("recording functions", () => {
     global.self = {
       failCapture: jest.fn(),
       recordCapture: jest.fn(),
-      recordPdfCapture: jest.fn(),
-      recordPdfDownload: jest.fn(),
+      ...STAGE_CONSTANTS,
+      recordStage: jest.fn(),
       sendProgressUpdate: jest.fn(),
-      toHtml: jest.fn().mockReturnValue(html),
+      renderProgressTableHtml: jest.fn().mockReturnValue(html),
     };
     global.browser = { runtime: { sendMessage: jest.fn().mockResolvedValue(undefined) } };
     global.captureSession = session;
@@ -612,28 +616,28 @@ describe("recording functions", () => {
 
   test("recordCapture records in the current session's row and pushes the table", () => {
     recordCapture(STATUS_SUCCESS, PDF_URL);
-    expect(self.recordPdfCapture).toHaveBeenCalledWith(
-      session.doi, session.pageCounter, STATUS_SUCCESS, PDF_URL);
+    expect(self.recordStage).toHaveBeenCalledWith(
+      session.doi, session.pageCounter, STAGE_PDF_CAPTURE, STATUS_SUCCESS, PDF_URL);
     expect(self.sendProgressUpdate).toHaveBeenCalledTimes(1);
   });
 
   test("recordCapture can record in another session's row", () => {
     recordCapture(STATUS_SUCCESS, PDF_URL, otherSession);
-    expect(self.recordPdfCapture).toHaveBeenCalledWith(
-      otherSession.doi, otherSession.pageCounter, STATUS_SUCCESS, PDF_URL);
+    expect(self.recordStage).toHaveBeenCalledWith(
+      otherSession.doi, otherSession.pageCounter, STAGE_PDF_CAPTURE, STATUS_SUCCESS, PDF_URL);
   });
 
   test("recordDownload records in the current session's row and pushes the table", () => {
     recordDownload(STATUS_SUCCESS, pdfFilename(session.doi));
-    expect(self.recordPdfDownload).toHaveBeenCalledWith(
-      session.doi, session.pageCounter, STATUS_SUCCESS, pdfFilename(session.doi));
+    expect(self.recordStage).toHaveBeenCalledWith(
+      session.doi, session.pageCounter, STAGE_PDF_DOWNLOAD, STATUS_SUCCESS, pdfFilename(session.doi));
     expect(self.sendProgressUpdate).toHaveBeenCalledTimes(1);
   });
 
   test("recordDownload can record in another session's row", () => {
     recordDownload(STATUS_SUCCESS, pdfFilename(otherSession.doi), otherSession);
-    expect(self.recordPdfDownload).toHaveBeenCalledWith(
-      otherSession.doi, otherSession.pageCounter, STATUS_SUCCESS, pdfFilename(otherSession.doi));
+    expect(self.recordStage).toHaveBeenCalledWith(
+      otherSession.doi, otherSession.pageCounter, STAGE_PDF_DOWNLOAD, STATUS_SUCCESS, pdfFilename(otherSession.doi));
   });
 
   test("recordCaptureFailure records the status with its reason and reports the failure", () => {
@@ -651,8 +655,8 @@ describe("page-load and link-search recording", () => {
     jest.useFakeTimers();
     global.self = {
       ...STATUS_CONSTANTS,
-      recordPublisherPageAccess: jest.fn(),
-      recordPdfLinkFound: jest.fn(),
+      ...STAGE_CONSTANTS,
+      recordStage: jest.fn(),
       sendProgressUpdate: jest.fn(),
       reportStatus: jest.fn(),
     };
@@ -666,16 +670,16 @@ describe("page-load and link-search recording", () => {
 
   test("seedPageLoadRow shows page 1 as pending until it is confirmed", () => {
     seedPageLoadRow(DOI, DOI_URL);
-    expect(self.recordPublisherPageAccess).toHaveBeenCalledWith(
-      DOI, 1, `${STATUS_PENDING}: ${PAGE_LOAD_PENDING_REASON}`, DOI_URL);
+    expect(self.recordStage).toHaveBeenCalledWith(
+      DOI, 1, STAGE_PUBLISHER_PAGE, `${STATUS_PENDING}: ${PAGE_LOAD_PENDING_REASON}`, DOI_URL);
     expect(self.sendProgressUpdate).toHaveBeenCalledTimes(1);
   });
 
   test("seedPageLoadRow marks page 1 as failed when it is not confirmed in time", () => {
     seedPageLoadRow(DOI, DOI_URL);
     jest.advanceTimersByTime(PAGE_LOAD_TIMEOUT_MS);
-    expect(self.recordPublisherPageAccess).toHaveBeenLastCalledWith(
-      DOI, 1, `${STATUS_ACCESS_ERROR}: page did not load`, DOI_URL);
+    expect(self.recordStage).toHaveBeenLastCalledWith(
+      DOI, 1, STAGE_PUBLISHER_PAGE, `${STATUS_ACCESS_ERROR}: page did not load`, DOI_URL);
     expect(self.sendProgressUpdate).toHaveBeenCalledTimes(2);
     expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching(DOI_URL), true);
   });
@@ -685,44 +689,43 @@ describe("page-load and link-search recording", () => {
     seedPageLoadRow(OTHER_DOI, "https://doi.org/" + OTHER_DOI);
     seedPageLoadRow(DOI, DOI_URL);
     jest.runAllTimers();
-    expect(self.recordPublisherPageAccess).not.toHaveBeenCalledWith(
-      OTHER_DOI, 1, expect.stringMatching(`^${STATUS_ACCESS_ERROR}`), expect.anything());
+    expect(self.recordStage).not.toHaveBeenCalledWith(
+      OTHER_DOI, 1, STAGE_PUBLISHER_PAGE, expect.stringMatching(`^${STATUS_ACCESS_ERROR}`), expect.anything());
   });
 
   test("a confirmed page load is recorded and cancels the page-load timeout", () => {
     seedPageLoadRow(DOI, DOI_URL);
     recordContentProgress({ stage: "page", doi: DOI, url: PAGE_URL });
-    expect(self.recordPublisherPageAccess).toHaveBeenLastCalledWith(DOI, 1, STATUS_SUCCESS, PAGE_URL);
+    expect(self.recordStage).toHaveBeenLastCalledWith(DOI, 1, STAGE_PUBLISHER_PAGE, STATUS_SUCCESS, PAGE_URL);
     jest.runAllTimers();
-    expect(self.recordPublisherPageAccess).toHaveBeenLastCalledWith(DOI, 1, STATUS_SUCCESS, PAGE_URL);
+    expect(self.recordStage).toHaveBeenLastCalledWith(DOI, 1, STAGE_PUBLISHER_PAGE, STATUS_SUCCESS, PAGE_URL);
   });
 
   test("a page load belongs to the page after the ones already captured", () => {
     global.jobPageCounter = 2;
     recordContentProgress({ stage: "page", doi: DOI, url: PAGE_URL });
-    expect(self.recordPublisherPageAccess).toHaveBeenCalledWith(DOI, global.jobPageCounter + 1, STATUS_SUCCESS, PAGE_URL);
+    expect(self.recordStage).toHaveBeenCalledWith(DOI, global.jobPageCounter + 1, STAGE_PUBLISHER_PAGE, STATUS_SUCCESS, PAGE_URL);
   });
 
   test("a found link is recorded with its url", () => {
     recordContentProgress({ stage: "link", doi: DOI, found: true, url: PDF_URL });
-    expect(self.recordPdfLinkFound).toHaveBeenCalledWith(DOI, 1, STATUS_SUCCESS, PDF_URL);
+    expect(self.recordStage).toHaveBeenCalledWith(DOI, 1, STAGE_PDF_LINK, STATUS_SUCCESS, PDF_URL);
     expect(self.sendProgressUpdate).toHaveBeenCalledTimes(1);
   });
 
   test("a found button is recorded without a url", () => {
     recordContentProgress({ stage: "link", doi: DOI, found: true, url: null });
-    expect(self.recordPdfLinkFound).toHaveBeenCalledWith(DOI, 1, STATUS_SUCCESS, null);
+    expect(self.recordStage).toHaveBeenCalledWith(DOI, 1, STAGE_PDF_LINK, STATUS_SUCCESS, null);
   });
 
   test("a missing link is recorded as not found", () => {
     recordContentProgress({ stage: "link", doi: DOI, found: false, url: null });
-    expect(self.recordPdfLinkFound).toHaveBeenCalledWith(DOI, 1, STATUS_NOT_FOUND, null);
+    expect(self.recordStage).toHaveBeenCalledWith(DOI, 1, STAGE_PDF_LINK, STATUS_NOT_FOUND, null);
   });
 
   test("an unknown stage records nothing", () => {
     recordContentProgress({ stage: "other", doi: DOI });
-    expect(self.recordPublisherPageAccess).not.toHaveBeenCalled();
-    expect(self.recordPdfLinkFound).not.toHaveBeenCalled();
+    expect(self.recordStage).not.toHaveBeenCalled();
     expect(self.sendProgressUpdate).not.toHaveBeenCalled();
   });
 });

@@ -40,7 +40,7 @@ browser.runtime.onMessage.addListener((msg, sender) => {
 
   if (msg.type === "get-progress") {
     // sent by the status tab when it opens: do not report
-    return Promise.resolve({ html: self.toHtml() });
+    return Promise.resolve({ html: self.renderProgressTableHtml() });
   }
 
   if (msg.type === "record-progress") {

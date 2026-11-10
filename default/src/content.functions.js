@@ -10,20 +10,20 @@ const PROGRESS_STAGE_LINK = "link";
 const SEARCHED_ELEMENTS_SELECTOR = "a, button";
 const SEARCH_DELAY_MS = 1000;
 
-const ACTION_RESULT_LINK_FOUND = "link found";
-const ACTION_RESULT_BUTTON_FOUND = "button found";
-const ACTION_RESULT_NOT_FOUND = "not found";
-const ACTION_RESULT_ERROR = "error";
-const JOB_RESULT_FINISHED = "finished job";
-const JOB_RESULT_PROCESSED = "processed job";
-const JOB_RESULT_INVALID = "invalid job";
+const LINK_FOUND = "link found";
+const BUTTON_FOUND = "button found";
+const NO_LINK_OR_BUTTON_FOUND = "no link or button found";
+const LINK_CAPTURE_ERROR = "link capture error";
+const PAGE_SEARCH_SCHEDULED = "page search scheduled";
+const PAGE_ALREADY_PROCESSED = "page already processed";
+const NO_JOB_FOR_THIS_TAB = "no job for this tab";
 
-async function maybeRunJob(myTabId) {
+async function runStoredJob(myTabId) {
   const job = await readStoredJob();
   if (isJobForThisTab(job, myTabId)) {
     return runJob(job, myTabId);
   } else {
-    return JOB_RESULT_INVALID;
+    return NO_JOB_FOR_THIS_TAB;
   }
 }
 
@@ -43,11 +43,12 @@ function recordProgress(progressStage, doi, stageDetails) {
 }
 
 async function readStoredJob() {
+  self.reportStatus("Entered readStoredJob");
   try {
     const storedValues = await browser.storage.local.get("job");
     return storedValues.job;
   } catch (error) {
-    self.reportStatus(`error reading job from storage: ${error}`);
+    self.reportStatus(`Error reading job from storage: ${error}`);
     return null;
   }
 }
@@ -61,22 +62,23 @@ async function runJob(job, myTabId) {
   const publisherPageUrl = location.href;
   if (job.usedUrls.includes(publisherPageUrl)) {
     self.reportStatus("Skipping: already processed this page.");
-    return JOB_RESULT_PROCESSED;
+    return PAGE_ALREADY_PROCESSED;
   } else {
     await processNewPage(job, myTabId, publisherPageUrl);
-    return JOB_RESULT_FINISHED;
+    return PAGE_SEARCH_SCHEDULED;
   }
 }
 
 async function processNewPage(job, myTabId, publisherPageUrl) {
+  self.reportStatus(`Entered processNewPage, tabId is ${myTabId}, publisher page url is ${publisherPageUrl}`);
   job.usedUrls.push(publisherPageUrl);
   await browser.storage.local.set({ job });
   await self.recordProgress(PROGRESS_STAGE_PAGE, job.doi, { url: publisherPageUrl });
-  self.reportStatus("tabId matches job, running job");
   window.setTimeout(() => searchPage(job, myTabId), SEARCH_DELAY_MS);
 }
 
 async function searchPage(job, myTabId) {
+  self.reportStatus(`Entered searchPage, tabId is ${myTabId}`);
   try {
     await self.followPdfLinkOrButton(job, myTabId);
   } catch (error) {
@@ -85,7 +87,7 @@ async function searchPage(job, myTabId) {
 }
 
 async function followPdfLinkOrButton(job, myTabId) {
-  self.reportStatus("Entering followPdfLinkOrButton...");
+  self.reportStatus("Entered followPdfLinkOrButton");
   const foundElement = self.findElementByPhrase(job.phrase);
   if (foundElement) {
     return handleFoundElement(foundElement, job, myTabId);
@@ -125,6 +127,7 @@ function readElementText(candidateElement) {
 }
 
 async function handleFoundElement(foundElement, job, myTabId) {
+  self.reportStatus(`Entered handleFoundElement, tabId is ${myTabId}`);
   await self.recordProgress(PROGRESS_STAGE_LINK, job.doi, { found: true, url: readLinkUrl(foundElement) });
   if (isLink(foundElement)) {
     return requestLinkCapture(foundElement.href, job, myTabId);
@@ -142,21 +145,19 @@ function isLink(foundElement) {
 }
 
 async function requestLinkCapture(pdfUrl, job, myTabId) {
-  self.reportStatus(`Found candidate link for "${job.phrase}", processing…`);
+  self.reportStatus(`Entered requestLinkCapture: Found candidate link for "${job.phrase}", processing`);
   try {
-    await browser.runtime.sendMessage({ type: CAPTURE_LINK_MESSAGE_TYPE, pdfUrl, doi: job.doi || null, tabId: myTabId });
-    return ACTION_RESULT_LINK_FOUND;
+    await browser.runtime.sendMessage({ type: CAPTURE_LINK_MESSAGE_TYPE, pdfUrl, doi: job.doi, tabId: myTabId });
+    return LINK_FOUND;
   } catch (error) {
     self.reportStatus(`Error asking add-on to capture PDF: ${error}`);
-    return ACTION_RESULT_ERROR;
+    return LINK_CAPTURE_ERROR;
   }
 }
 
-// The capture only watches this tab. If the button opens the PDF in a new tab
-// (window.open, or a form with target="_blank"), the PDF is not captured and the
-// capture is recorded as failed when it times out.
+// misses the capture if the button opens the PDF in a new tab
 async function clickButton(button, job, myTabId) {
-  self.reportStatus("Arming capture…");
+  self.reportStatus("Entered clickButton: arming capture");
   await browser.runtime.sendMessage({ type: ARM_CAPTURE_MESSAGE_TYPE, doi: job.doi, tabId: myTabId });
   self.reportStatus(`Clicking "${job.phrase}" button…`);
   try {
@@ -164,24 +165,25 @@ async function clickButton(button, job, myTabId) {
   } catch (error) {
     self.reportStatus(`Failed clicking element: ${error.message}`);
   }
-  return ACTION_RESULT_BUTTON_FOUND;
+  return BUTTON_FOUND;
 }
 
 async function reportMissingElement(job) {
-  self.reportStatus(`❌ No link or button found containing "${job.phrase}"`);
+  self.reportStatus(`Entered reportMissingElement: No link or button found containing "${job.phrase}"`);
   await self.recordProgress(PROGRESS_STAGE_LINK, job.doi, { found: false, url: null });
-  return ACTION_RESULT_NOT_FOUND;
+  return NO_LINK_OR_BUTTON_FOUND;
 }
 
-const exported = { findElementByPhrase, followPdfLinkOrButton, maybeRunJob, recordProgress, reportStatus };
+const exported = { findElementByPhrase, followPdfLinkOrButton, runStoredJob, recordProgress, reportStatus };
 
 /* istanbul ignore next */
 if (typeof module !== "undefined") {
   module.exports = {
     ...exported,
     PROGRESS_STAGE_PAGE, PROGRESS_STAGE_LINK,
-    ACTION_RESULT_LINK_FOUND, ACTION_RESULT_BUTTON_FOUND, ACTION_RESULT_NOT_FOUND, ACTION_RESULT_ERROR,
-    JOB_RESULT_FINISHED, JOB_RESULT_PROCESSED, JOB_RESULT_INVALID,
+    LINK_FOUND, BUTTON_FOUND, NO_LINK_OR_BUTTON_FOUND, LINK_CAPTURE_ERROR,
+    PAGE_SEARCH_SCHEDULED, PAGE_ALREADY_PROCESSED, NO_JOB_FOR_THIS_TAB,
+    RECORD_PROGRESS_MESSAGE_TYPE, CAPTURE_LINK_MESSAGE_TYPE, ARM_CAPTURE_MESSAGE_TYPE,
   };
 }
 /* istanbul ignore next */

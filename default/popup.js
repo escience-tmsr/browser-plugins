@@ -1,58 +1,78 @@
-browser.runtime.onMessage.addListener((msg) => {
-  if (msg?.type === "status") {
-    const element = document.getElementById("statusLine");
-    if (element) {
-      element.textContent = msg.text;
-    }
+const START_JOB_MESSAGE_TYPE = "start-job";
+const SAVE_LOG_MESSAGE_TYPE = "save-log";
+const DOI_INPUT_ID = "doiInputId";
+const START_BUTTON_ID = "startButtonId";
+const OPEN_STATUS_TABLE_BUTTON_ID = "openStatusTableId";
+const SAVE_LOG_BUTTON_ID = "saveLogId";
+const STATUS_LINE_ID = "statusLineId";
+const ERROR_COLOR = "red";
+const LOG_PREFIX = "[default-extension]";
+
+function initPopup() {
+  document.getElementById(START_BUTTON_ID).addEventListener("click", startJobFromPopup);
+  document.getElementById(OPEN_STATUS_TABLE_BUTTON_ID).addEventListener("click", openStatusTable);
+  document.getElementById(SAVE_LOG_BUTTON_ID).addEventListener("click", saveLogFile);
+}
+
+async function startJobFromPopup() {
+  const doi = readDoiInput();
+  if (doi) {
+    await requestJobStart(doi);
+  } else {
+    showError("Please enter a DOI.");
   }
-});
+}
 
-document.getElementById("startButton").addEventListener("click", () => {
-  const doi = document.getElementById("doiInput").value.trim();
-
-  if (!doi) {
-    reportStatus("Please enter a DOI.", isError = true);
-    return;
+async function openStatusTable() {
+  try {
+    await openOrFocusStatusTab();
+    closePopup();
+  } catch (error) {
+    showError(`Error opening status table: ${error.message}`);
   }
+}
 
-  // Progress is shown in the status tab, so the popup can close once the job has
-  // started; it stays open to show an error.
-  browser.runtime.sendMessage({
-    type: "start-job",
-    doi
-  }).then(() => {
-    window.close();
-  }).catch(err => {
-    reportStatus("Error starting job: " + err, isError = true);
-  });
-
-});
-
-document.getElementById("openStatusTable").addEventListener("click", () => {
-  openOrFocusStatusTab().then(() => {
-    window.close();
-  }).catch(err => {
-    reportStatus("Error opening status table: " + err, isError = true);
-  });
-});
-
-document.getElementById("saveLog").addEventListener("click", () => {
-  browser.runtime.sendMessage({
-    type: "save-log"
-  }).catch(err => { 
-    reportStatus("could not save log!"), isError = true
-  });
-});
-
-
-function reportStatus(text, isError = false) {
-  const element = document.getElementById("statusLine");
-  if (!element) return;
-
-  element.textContent = text;
-  if (!isError) { console.log("[default-extension] " + text); } 
-  else {
-    element.style.color = "red";
-    console.error("[default-extension] " + text);
+async function saveLogFile() {
+  try {
+    await browser.runtime.sendMessage({ type: SAVE_LOG_MESSAGE_TYPE });
+  } catch (error) {
+    showError(`Could not save log: ${error.message}`);
   }
+}
+
+function readDoiInput() {
+  return document.getElementById(DOI_INPUT_ID).value.trim();
+}
+
+async function requestJobStart(doi) {
+  try {
+    await browser.runtime.sendMessage({ type: START_JOB_MESSAGE_TYPE, doi });
+    closePopup();
+  } catch (error) {
+    showError(`Error starting job: ${error.message}`);
+  }
+}
+
+function closePopup() {
+  window.close();
+}
+
+function showError(errorText) {
+  const statusLineElement = document.getElementById(STATUS_LINE_ID);
+  statusLineElement.textContent = errorText;
+  statusLineElement.style.color = ERROR_COLOR;
+  console.error(`${LOG_PREFIX} ${errorText}`);
+}
+
+/* istanbul ignore next */
+if (typeof module !== "undefined") {
+  module.exports = {
+    initPopup, startJobFromPopup, openStatusTable, saveLogFile,
+    START_JOB_MESSAGE_TYPE, SAVE_LOG_MESSAGE_TYPE, ERROR_COLOR, LOG_PREFIX,
+    DOI_INPUT_ID, START_BUTTON_ID, OPEN_STATUS_TABLE_BUTTON_ID, SAVE_LOG_BUTTON_ID, STATUS_LINE_ID,
+  };
+}
+/* istanbul ignore next */
+if (typeof document !== "undefined" && document.getElementById(START_BUTTON_ID)) {
+  initPopup();
 }

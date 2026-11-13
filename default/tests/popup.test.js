@@ -1,8 +1,11 @@
 const {
-  initPopup, startJobFromPopup, openStatusTable, saveLogFile,
-  START_JOB_MESSAGE_TYPE, SAVE_LOG_MESSAGE_TYPE, ERROR_COLOR, LOG_PREFIX,
-  DOI_INPUT_ID, START_BUTTON_ID, OPEN_STATUS_TABLE_BUTTON_ID, SAVE_LOG_BUTTON_ID, STATUS_LINE_ID,
+  initPopup, openStatusTable, saveLogFile, startJobFromPopup,
+  START_BUTTON_ID, START_JOB_MESSAGE_TYPE, SAVE_LOG_BUTTON_ID, SAVE_LOG_MESSAGE_TYPE,
+  OPEN_STATUS_TABLE_BUTTON_ID, DOI_INPUT_ID, ERROR_COLOR, ERROR_MISSING_DOI, LOG_PREFIX, STATUS_LINE_ID,
 } = require("../popup");
+
+const ERROR_CHILD_PROCESS_UNREACHABLE = "Cannot reach child process";
+const ERROR_NO_TABS = "no tabs";
 
 const JOB_DOI = "10.1234/doi";
 const POPUP_HTML = `
@@ -44,7 +47,7 @@ describe("startJobFromPopup", () => {
   test("starts a job for the entered doi and closes the popup", async () => {
     enterDoi(`  ${JOB_DOI}  `);
     await startJobFromPopup();
-    expect(browser.runtime.sendMessage).toHaveBeenCalledWith({ type: START_JOB_MESSAGE_TYPE, doi: JOB_DOI });
+    expect(browser.runtime.sendMessage).toHaveBeenCalledWith({ type: START_JOB_MESSAGE_TYPE, doi: JOB_DOI, caller: "requestJobStart" });
     expect(window.close).toHaveBeenCalledTimes(1);
   });
 
@@ -52,32 +55,17 @@ describe("startJobFromPopup", () => {
     enterDoi("   ");
     await startJobFromPopup();
     expect(browser.runtime.sendMessage).not.toHaveBeenCalled();
-    expect(readStatusLine().textContent).toBe("Please enter a DOI.");
+    expect(readStatusLine().textContent).toBe(ERROR_MISSING_DOI);
     expect(readStatusLine().style.color).toBe(ERROR_COLOR);
-    expect(console.error).toHaveBeenCalledWith(`${LOG_PREFIX} Please enter a DOI.`);
+    expect(console.error).toHaveBeenCalledWith(`${LOG_PREFIX} ${ERROR_MISSING_DOI}`);
   });
 
   test("shows an error and stays open when the job cannot be started", async () => {
     enterDoi(JOB_DOI);
-    browser.runtime.sendMessage.mockRejectedValue(new Error("no background"));
+    browser.runtime.sendMessage.mockRejectedValue(new Error(ERROR_CHILD_PROCESS_UNREACHABLE));
     await startJobFromPopup();
-    expect(readStatusLine().textContent).toBe("Error starting job: no background");
+    expect(readStatusLine().textContent).toBe(`Error starting job: ${ERROR_CHILD_PROCESS_UNREACHABLE}`);
     expect(readStatusLine().style.color).toBe(ERROR_COLOR);
-    expect(window.close).not.toHaveBeenCalled();
-  });
-});
-
-describe("openStatusTable", () => {
-  test("opens the status table and closes the popup", async () => {
-    await openStatusTable();
-    expect(openOrFocusStatusTab).toHaveBeenCalledTimes(1);
-    expect(window.close).toHaveBeenCalledTimes(1);
-  });
-
-  test("shows an error and stays open when the status table cannot be opened", async () => {
-    openOrFocusStatusTab.mockRejectedValue(new Error("no tabs"));
-    await openStatusTable();
-    expect(readStatusLine().textContent).toBe("Error opening status table: no tabs");
     expect(window.close).not.toHaveBeenCalled();
   });
 });
@@ -90,23 +78,49 @@ describe("saveLogFile", () => {
   });
 
   test("shows an error when the log cannot be saved", async () => {
-    browser.runtime.sendMessage.mockRejectedValue(new Error("no downloads"));
+    browser.runtime.sendMessage.mockRejectedValue(new Error(ERROR_CHILD_PROCESS_UNREACHABLE));
     await saveLogFile();
-    expect(readStatusLine().textContent).toBe("Could not save log: no downloads");
+    expect(readStatusLine().textContent).toBe(`Could not save logfile: ${ERROR_CHILD_PROCESS_UNREACHABLE}`);
     expect(readStatusLine().style.color).toBe(ERROR_COLOR);
   });
 });
 
+describe("openStatusTable", () => {
+  test("opens the status table and closes the popup", async () => {
+    await openStatusTable();
+    expect(openOrFocusStatusTab).toHaveBeenCalledTimes(1);
+    expect(window.close).toHaveBeenCalledTimes(1);
+  });
+
+  test("shows an error and stays open when the status table cannot be opened", async () => {
+    openOrFocusStatusTab.mockRejectedValue(new Error(ERROR_NO_TABS));
+    await openStatusTable();
+    expect(readStatusLine().textContent).toBe(`Error opening status table: ${ERROR_NO_TABS}`);
+    expect(window.close).not.toHaveBeenCalled();
+  });
+});
+
 describe("initPopup", () => {
-  test("connects each button to its action", async () => {
+  beforeEach(() => {
     initPopup();
+  });
+
+  test("connects start button to its action: startJobFromPopup", async () => {
     enterDoi(JOB_DOI);
     document.getElementById(START_BUTTON_ID).click();
-    document.getElementById(OPEN_STATUS_TABLE_BUTTON_ID).click();
+    await waitForClickHandlers();
+    expect(browser.runtime.sendMessage).toHaveBeenCalledWith({ type: START_JOB_MESSAGE_TYPE, doi: JOB_DOI, caller: "requestJobStart" });
+  });
+
+  test("connects save log button to its action: saveLogFile", async () => {
     document.getElementById(SAVE_LOG_BUTTON_ID).click();
     await waitForClickHandlers();
-    expect(browser.runtime.sendMessage).toHaveBeenCalledWith({ type: START_JOB_MESSAGE_TYPE, doi: JOB_DOI });
-    expect(openOrFocusStatusTab).toHaveBeenCalledTimes(1);
     expect(browser.runtime.sendMessage).toHaveBeenCalledWith({ type: SAVE_LOG_MESSAGE_TYPE });
+  });
+
+  test("connects open status button to its action: openStatusTable", async () => {
+    document.getElementById(OPEN_STATUS_TABLE_BUTTON_ID).click();
+    await waitForClickHandlers();
+    expect(openOrFocusStatusTab).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,4 +1,4 @@
-const { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureBase, failCapture, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange, processIncomingPdfData, recordCapture, recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment, retrievingPdfFile, sanitizeDOI, seedPageLoadRow, sendProgressUpdate, startJob, storeDetailsInSessionData }  = require("../src/background.functions");
+const { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureBase, failCapture, isCapturingPdfInTab, isPdfResponse, looksPaywalledUrl, processDownloadChange, processIncomingPdfData, recordCapture, recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment, sanitizeDOI, seedPageLoadRow, sendProgressUpdate, startJob, storeDetailsInSessionData }  = require("../src/background.functions");
 const {
   STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_ACCESS_ERROR, STATUS_SKIPPED, STATUS_PENDING,
   STAGE_PUBLISHER_PAGE, STAGE_PDF_LINK, STAGE_PDF_CAPTURE, STAGE_PDF_DOWNLOAD,
@@ -51,28 +51,26 @@ describe("looksPaywalledUrl", () => {
   });
 });
 
-describe("inRetrievePdfSession", () => {
-  test("not in retrieve PDF session", () => {
-    captureSession = null;
-    expect(inRetrievePdfSession(1))
+describe("isCapturingPdfInTab", () => {
+  test("is not capturing without a capture session", () => {
+    expect(isCapturingPdfInTab(null, 1))
       .toBe(false);
   });
   
-  test(" in retrieve PDF session", () => {
-    captureSession = { tabId: 1 };
-    expect(inRetrievePdfSession(1))
+  test("is capturing in the session's tab", () => {
+    expect(isCapturingPdfInTab({ tabId: 1 }, 1))
       .toBe(true);
   });
 });
 
-describe("retrievingPdfFile", () => {
-  test("not retrieving PDF file", () => {
-    expect(retrievingPdfFile({ responseHeaders: null }))
+describe("isPdfResponse", () => {
+  test("is not a pdf response without headers", () => {
+    expect(isPdfResponse({ responseHeaders: null }))
       .toBe(false);
   });
   
-  test("retrieving PDF file", () => {
-    expect(retrievingPdfFile({
+  test("is a pdf response with a pdf content type", () => {
+    expect(isPdfResponse({
            responseHeaders: [ { name: "Content-type", 
                                 value: "application/pdf" } ]
            }))
@@ -132,9 +130,8 @@ describe("processIncomingPdfData", () => {
     };
   });
 
-  test("stream PDF data, trigger a download when expectBrowserDownload is false", async () => {
+  test("streams the PDF data and saves it as a download", async () => {
     global.captureSession = {
-      "expectBrowserDownload": false,
       "doi": "10.1234/foo.bar",
     }
     global.URL = {
@@ -166,27 +163,9 @@ describe("processIncomingPdfData", () => {
     expect(self.failCapture).not.toHaveBeenCalled();
   });
   
-  test("setting expectBrowserDownload prevents browser download", async () => {
-    global.captureSession = {
-      "doi": DOI,
-      "expectBrowserDownload": true
-    };
-    processIncomingPdfData({ requestId: "req-2" });
-    await fakeFilter.onstop();
-    expect(browser.downloads.download).not.toHaveBeenCalled();
-  });
-
-  // this test checks for a possibly erroneous call of browser.webRequest.filterResponseData
-  test("a PDF the browser downloads itself is not filtered", () => {
-    global.captureSession = { doi: DOI, pageCounter: 1, expectBrowserDownload: true };
-    processIncomingPdfData({ requestId: "req-2b" });
-    expect(browser.webRequest.filterResponseData).not.toHaveBeenCalled();
-  });
-
   test("seems redundant?", async () => {
     global.captureSession = {
       "doi": DOI,
-      "expectBrowserDownload": false
     };
     processIncomingPdfData({ requestId: "req-3" });
     await fakeFilter.onstop();
@@ -204,7 +183,7 @@ describe("processIncomingPdfData", () => {
   });
 
   test("a failed save is recorded in the download stage of the capture's row", async () => {
-    const SAVE_SESSION = { doi: DOI, pageCounter: 2, expectBrowserDownload: false };
+    const SAVE_SESSION = { doi: DOI, pageCounter: 2 };
     const SAVE_ERROR = "disk full";
     global.captureSession = SAVE_SESSION;
     global.URL = { createObjectURL: jest.fn(), revokeObjectURL: jest.fn() };
@@ -217,7 +196,7 @@ describe("processIncomingPdfData", () => {
   });
 
   test("a failed save ends the capture", async () => {
-    global.captureSession = { doi: DOI, pageCounter: 1, expectBrowserDownload: false };
+    global.captureSession = { doi: DOI, pageCounter: 1 };
     global.URL = { createObjectURL: jest.fn(), revokeObjectURL: jest.fn() };
     global.browser.downloads.download = jest.fn().mockRejectedValue(new Error("disk full"));
     processIncomingPdfData({ requestId: "req-6" });
@@ -226,7 +205,7 @@ describe("processIncomingPdfData", () => {
   });
 
   test("a response that breaks off is recorded as a failed download and ends the capture", () => {
-    const TRANSFER_SESSION = { doi: DOI, pageCounter: 2, expectBrowserDownload: false };
+    const TRANSFER_SESSION = { doi: DOI, pageCounter: 2 };
     const TRANSFER_ERROR = "Channel redirected";
     global.captureSession = TRANSFER_SESSION;
     processIncomingPdfData({ requestId: "req-7" });
@@ -240,7 +219,7 @@ describe("processIncomingPdfData", () => {
   });
 
   test("a response that breaks off after its capture ended reports nothing", () => {
-    global.captureSession = { doi: DOI, pageCounter: 1, expectBrowserDownload: false };
+    global.captureSession = { doi: DOI, pageCounter: 1 };
     processIncomingPdfData({ requestId: "req-8" });
     global.captureSession = null;  // e.g. already ended by a capture timeout
     fakeFilter.onerror();
@@ -249,7 +228,7 @@ describe("processIncomingPdfData", () => {
   });
 
   test("a response that breaks off does not end a newer capture", () => {
-    global.captureSession = { doi: DOI, pageCounter: 1, expectBrowserDownload: false };
+    global.captureSession = { doi: DOI, pageCounter: 1 };
     processIncomingPdfData({ requestId: "req-9" });
     const newerSession = { doi: DOI, pageCounter: 2 };
     global.captureSession = newerSession;

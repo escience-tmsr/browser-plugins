@@ -20,7 +20,7 @@
                 "src/progress-table.js",
                 "src/status-view.js",
                 "src/background.functions.js",
-                "background.js"],
+                "background-listeners.js"],
     "persistent": false
   },
   "content_scripts": [

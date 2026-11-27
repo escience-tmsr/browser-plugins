@@ -8,11 +8,11 @@ const IGNORE_WEBREQUEST_ERRORS = new Set([
   "NS_ERROR_DOM_BAD_URI",
 ]);
 
-function inRetrievePdfSession(tabId) {
+function isCapturingPdfInTab(captureSession, tabId) {
   return Boolean(captureSession && tabId === captureSession.tabId);
 }
 
-function retrievingPdfFile(details) {
+function isPdfResponse(details) {
   const headers = details.responseHeaders || [];
   const contentType = (headers.find(h => h.name.toLowerCase() === "content-type")?.value || "").toLowerCase();
   return contentType.includes("application/pdf");
@@ -36,11 +36,6 @@ function retrievingAttachment(details) {
 
 function processIncomingPdfData(details) {
   const session = captureSession;
-  // The browser downloads this PDF itself, and processDownloadChange records how that
-  // ends. Its data is not needed here, and Firefox cannot filter a response that becomes
-  // a download (the filter fails with "Invalid request ID").
-  if (session.expectBrowserDownload) return;
-
   const dataFlow = browser.webRequest.filterResponseData(details.requestId);
   const chunks = [];
 
@@ -293,10 +288,10 @@ function saveLog(downloadLogCsv) {
 
 if (typeof module !== "undefined") {
   module.exports = { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureAndNavigate, armCaptureBase, armCaptureOnly,
-                     failCapture, inRetrievePdfSession, looksPaywalledUrl, processDownloadChange,
+                     failCapture, isCapturingPdfInTab, isPdfResponse, looksPaywalledUrl, processDownloadChange,
                      processIncomingPdfData, recordCapture,
                      recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment,
-                     retrievingPdfFile, sanitizeDOI, saveLog, seedPageLoadRow, sendProgressUpdate, startJob,
+                     sanitizeDOI, saveLog, seedPageLoadRow, sendProgressUpdate, startJob,
                      storeDetailsInSessionData };
 }
 if (typeof self !== "undefined") {
@@ -304,7 +299,8 @@ if (typeof self !== "undefined") {
   self.armCaptureBase = armCaptureBase;
   self.armCaptureOnly = armCaptureOnly;
   self.failCapture = failCapture;
-  self.inRetrievePdfSession = inRetrievePdfSession;
+  self.isCapturingPdfInTab = isCapturingPdfInTab;
+  self.isPdfResponse = isPdfResponse;
   self.looksPaywalledUrl = looksPaywalledUrl;
   self.processDownloadChange = processDownloadChange;
   self.processIncomingPdfData = processIncomingPdfData;
@@ -314,7 +310,6 @@ if (typeof self !== "undefined") {
   self.recordDownload = recordDownload;
   self.removeSlashes = removeSlashes;
   self.retrievingAttachment = retrievingAttachment;
-  self.retrievingPdfFile = retrievingPdfFile;
   self.sanitizeDOI = sanitizeDOI;
   self.saveLog = saveLog;
   self.seedPageLoadRow = seedPageLoadRow;

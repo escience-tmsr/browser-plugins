@@ -38,7 +38,7 @@ function registerBackgroundListeners() {
 
 function handleResponseHeaders(responseDetails) {
   if (self.isCapturingPdfInTab(captureSession, responseDetails.tabId)) {
-    self.storeDetailsInSessionData(responseDetails);
+    self.storeDetailsInSessionData(captureSession, responseDetails);
     captureIfPdfResponse(responseDetails);
   }
 }
@@ -51,10 +51,10 @@ function captureIfPdfResponse(responseDetails) {
 
 function captureIncomingPdf(responseDetails) {
   markPdfDetected(responseDetails.url);
-  if (self.retrievingAttachment(responseDetails)) {
+  if (self.isAttachmentResponse(responseDetails)) {
     reportBrowserDownload();
   } else {
-    self.processIncomingPdfData(responseDetails);
+    self.processIncomingPdfData(captureSession, responseDetails);
   }
 }
 
@@ -62,7 +62,7 @@ function markPdfDetected(pdfUrl) {
   captureSession.sawPdf = true;
   clearTimeout(captureSession.timeoutId);
   self.reportStatus("PDF response detected; capturing…");
-  self.recordCapture(self.STATUS_SUCCESS, pdfUrl);
+  self.recordCapture(self.STATUS_SUCCESS, pdfUrl, captureSession);
 }
 
 // Firefox cannot filter the data of a response that becomes a download

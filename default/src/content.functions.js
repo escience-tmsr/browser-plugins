@@ -6,7 +6,7 @@ const RECORD_PROGRESS_MESSAGE_TYPE = "record-progress";
 const CAPTURE_LINK_MESSAGE_TYPE = "download_pdf_via_tab_capture";
 const ARM_CAPTURE_MESSAGE_TYPE = "arm_capture_for_tab";
 const PROGRESS_STAGE_PAGE = "page";
-const PROGRESS_STAGE_LINK = "link";
+const PROGRESS_STAGE_PDF_LINK = "pdf-link";
 const SEARCHED_ELEMENTS_SELECTOR = "a, button";
 const SEARCH_DELAY_MS = 1000;
 
@@ -128,7 +128,7 @@ function readElementText(candidateElement) {
 
 async function handleFoundElement(foundElement, job, myTabId) {
   self.reportStatus(`Entered handleFoundElement, tabId is ${myTabId}`);
-  await self.recordProgress(PROGRESS_STAGE_LINK, job.doi, { found: true, url: readLinkUrl(foundElement) });
+  await self.recordProgress(PROGRESS_STAGE_PDF_LINK, job.doi, { found: true, url: readLinkUrl(foundElement) });
   if (isLink(foundElement)) {
     return requestLinkCapture(foundElement.href, job, myTabId);
   } else {
@@ -170,7 +170,7 @@ async function clickButton(button, job, myTabId) {
 
 async function reportMissingElement(job) {
   self.reportStatus(`Entered reportMissingElement: No link or button found containing "${job.phrase}"`);
-  await self.recordProgress(PROGRESS_STAGE_LINK, job.doi, { found: false, url: null });
+  await self.recordProgress(PROGRESS_STAGE_PDF_LINK, job.doi, { found: false, url: null });
   return NO_LINK_OR_BUTTON_FOUND;
 }
 
@@ -180,7 +180,7 @@ const exported = { findElementByPhrase, followPdfLinkOrButton, runStoredJob, rec
 if (typeof module !== "undefined") {
   module.exports = {
     ...exported,
-    PROGRESS_STAGE_PAGE, PROGRESS_STAGE_LINK,
+    PROGRESS_STAGE_PAGE, PROGRESS_STAGE_PDF_LINK,
     LINK_FOUND, BUTTON_FOUND, NO_LINK_OR_BUTTON_FOUND, LINK_CAPTURE_ERROR,
     PAGE_SEARCH_SCHEDULED, PAGE_ALREADY_PROCESSED, NO_JOB_FOR_THIS_TAB,
     RECORD_PROGRESS_MESSAGE_TYPE, CAPTURE_LINK_MESSAGE_TYPE, ARM_CAPTURE_MESSAGE_TYPE,

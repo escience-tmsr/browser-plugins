@@ -1,6 +1,6 @@
 const {
   findElementByPhrase, followPdfLinkOrButton, runStoredJob, recordProgress, reportStatus,
-  PROGRESS_STAGE_PAGE, PROGRESS_STAGE_LINK,
+  PROGRESS_STAGE_PAGE, PROGRESS_STAGE_PDF_LINK,
   LINK_FOUND, BUTTON_FOUND, NO_LINK_OR_BUTTON_FOUND, LINK_CAPTURE_ERROR,
   PAGE_SEARCH_SCHEDULED, PAGE_ALREADY_PROCESSED, NO_JOB_FOR_THIS_TAB,
   RECORD_PROGRESS_MESSAGE_TYPE, CAPTURE_LINK_MESSAGE_TYPE, ARM_CAPTURE_MESSAGE_TYPE,
@@ -111,9 +111,9 @@ describe("reportStatus", () => {
 describe("recordProgress", () => {
   test("sends the stage, doi and details to the background", async () => {
     global.browser = {"runtime": {"sendMessage": jest.fn().mockResolvedValue()}};
-    await recordProgress(PROGRESS_STAGE_LINK, JOB_DOI, { found: true, url: LINK_URL });
+    await recordProgress(PROGRESS_STAGE_PDF_LINK, JOB_DOI, { found: true, url: LINK_URL });
     expect(browser.runtime.sendMessage).toHaveBeenCalledWith(
-      { type: RECORD_PROGRESS_MESSAGE_TYPE, stage: PROGRESS_STAGE_LINK, doi: JOB_DOI, found: true, url: LINK_URL });
+      { type: RECORD_PROGRESS_MESSAGE_TYPE, stage: PROGRESS_STAGE_PDF_LINK, doi: JOB_DOI, found: true, url: LINK_URL });
   });
 
   test("resolves when the background does not answer", async () => {
@@ -186,7 +186,7 @@ describe("followPdfLinkOrButton", () => {
     await followPdfLinkOrButton(job, myTabId);
     expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching("^Entered handleFoundElement"));
     expect(browser.runtime.sendMessage).toHaveBeenCalledWith(
-      { type: RECORD_PROGRESS_MESSAGE_TYPE, stage: PROGRESS_STAGE_LINK, doi: JOB_DOI, found: true, url: LINK_URL });
+      { type: RECORD_PROGRESS_MESSAGE_TYPE, stage: PROGRESS_STAGE_PDF_LINK, doi: JOB_DOI, found: true, url: LINK_URL });
     expect(sentMessageTypes()).toEqual([RECORD_PROGRESS_MESSAGE_TYPE, CAPTURE_LINK_MESSAGE_TYPE]);
   });
 
@@ -196,7 +196,7 @@ describe("followPdfLinkOrButton", () => {
     await followPdfLinkOrButton(job, myTabId);
     expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching("^Entered handleFoundElement"));
     expect(browser.runtime.sendMessage).toHaveBeenCalledWith(
-      { type: RECORD_PROGRESS_MESSAGE_TYPE, stage: PROGRESS_STAGE_LINK, doi: JOB_DOI, found: true, url: null });
+      { type: RECORD_PROGRESS_MESSAGE_TYPE, stage: PROGRESS_STAGE_PDF_LINK, doi: JOB_DOI, found: true, url: null });
     expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching("^Entered clickButton"));
     expect(sentMessageTypes()).toEqual([RECORD_PROGRESS_MESSAGE_TYPE, ARM_CAPTURE_MESSAGE_TYPE]);
   });
@@ -206,7 +206,7 @@ describe("followPdfLinkOrButton", () => {
     await followPdfLinkOrButton(job, myTabId);
     expect(self.reportStatus).toHaveBeenCalledWith(expect.stringMatching("^Entered reportMissingElement"));
     expect(browser.runtime.sendMessage).toHaveBeenCalledWith(
-      { type: RECORD_PROGRESS_MESSAGE_TYPE, stage: PROGRESS_STAGE_LINK, doi: JOB_DOI, found: false, url: null });
+      { type: RECORD_PROGRESS_MESSAGE_TYPE, stage: PROGRESS_STAGE_PDF_LINK, doi: JOB_DOI, found: false, url: null });
   });
 
   test("detect phrase in hyperlink: success", async() => {

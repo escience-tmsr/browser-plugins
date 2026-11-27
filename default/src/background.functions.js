@@ -1,174 +1,393 @@
 const CAPTURE_TIMEOUT_MS = 15000;
 const PAGE_LOAD_TIMEOUT_MS = 30000;
 const PAGE_LOAD_PENDING_REASON = "waiting for the page to load";
-const phrase = ["PDF", "download"]
-const IGNORE_WEBREQUEST_ERRORS = new Set([
-  "NS_BINDING_ABORTED",
-  "NS_ERROR_TRACKING_URI",
-  "NS_ERROR_DOM_BAD_URI",
-]);
+const OBJECT_URL_LIFETIME_MS = 30000;
+const DOI_RESOLVER_URL = "https://doi.org/";
+const MAX_DOI_LENGTH = 100;
+const SEARCH_PHRASES = ["PDF", "download"];
+const FIRST_PAGE_NUMBER = 1;
+const PROGRESS_STAGE_PAGE = "page";
+const PROGRESS_STAGE_PDF_LINK = "pdf-link";
+const PROGRESS_UPDATE_MESSAGE_TYPE = "progress-update";
+const PAYWALL_URL_WORDS = ["paywall", "subscribe", "purchase", "checkout", "cart", "basket", "login", "signin", "account"];
+const PDF_CONTENT_TYPE = "application/pdf";
+const HTML_CONTENT_TYPE = "text/html";
+const CSV_CONTENT_TYPE = "text/csv";
+const LOG_FILENAME = "downloaded_pdfs.csv";
+const MAIN_FRAME_REQUEST_TYPE = "main_frame";
+const COMPLETE_DOWNLOAD_STATE = "complete";
+const FINISHED_DOWNLOAD_STATES = new Set([COMPLETE_DOWNLOAD_STATE, "interrupted"]);
+const ACCESS_DENIED_STATUS_CODES = new Set([401, 403]);
 
-function isCapturingPdfInTab(captureSession, tabId) {
-  return Boolean(captureSession && tabId === captureSession.tabId);
-}
+// global variables captureSession, downloadLog, jobPageCounter and pageLoadTimeoutId are declared in background-listeners.js
+// browser, clearTimeout, setTimeout, Blob and URL are provided by the environment
+// calls to functions preceded by self involve functions defined in other files
 
-function isPdfResponse(details) {
-  const headers = details.responseHeaders || [];
-  const contentType = (headers.find(h => h.name.toLowerCase() === "content-type")?.value || "").toLowerCase();
-  return contentType.includes("application/pdf");
-}
-
-function storeDetailsInSessionData(details) {
-  if (details.type === "main_frame") {
-    captureSession.lastMainUrl = details.url;
-    captureSession.lastMainStatus = details.statusCode;
-    const headers = details.responseHeaders || [];
-    const contentType = (headers.find(h => h.name.toLowerCase() === "content-type")?.value || "").toLowerCase();
-    captureSession.lastMainContentType = contentType;
+// startJob is an entry point function
+function startJob(doi) {
+  self.reportStatus("Entering startJob");
+  const normalizedDoi = sanitizeDoi(doi);
+  if (normalizedDoi) {
+    return startJobForDoi(normalizedDoi);
+  } else {
+    return rejectInvalidDoi(doi);
   }
 }
 
-function retrievingAttachment(details) {
-  const headers = details.responseHeaders || [];
-  const contentDisposition = (headers.find(h => h.name.toLowerCase() === "content-disposition")?.value || "").toLowerCase();
-  return contentDisposition.includes("attachment");
+function startJobForDoi(normalizedDoi) {
+  const doiUrl = DOI_RESOLVER_URL + normalizedDoi;
+  jobPageCounter = 0;
+  startPageLoadWatch(normalizedDoi, doiUrl);
+  showStatusTable();
+  return openDoiPageInBackgroundTab(normalizedDoi, doiUrl);
 }
 
-function processIncomingPdfData(details) {
-  const session = captureSession;
-  const dataFlow = browser.webRequest.filterResponseData(details.requestId);
-  const chunks = [];
-
-  dataFlow.ondata = (e) => {
-    dataFlow.write(e.data);
-    chunks.push(e.data);
-  };
-
-  const filename = `${self.removeSlashes(self.sanitizeDOI(session.doi))}.pdf`;
-  const failDownload = (reason) => {
-    self.recordDownload(`${self.STATUS_ACCESS_ERROR}: ${reason}`, filename, session);
-    self.failCapture(reason);
-    if (captureSession === session) captureSession = null;
-  };
-  dataFlow.onstop = async () => {
-    try {
-      dataFlow.disconnect();
-      const blob = new Blob(chunks, { type: "application/pdf" });
-      const objUrl = URL.createObjectURL(blob);
-      await browser.downloads.download({ url: objUrl, filename, saveAs: false });
-      setTimeout(() => URL.revokeObjectURL(objUrl), 30000);
-    } catch (e) {
-      failDownload(`Saving PDF failed: ${e.message}`);
-    }
-  };
-  // The response broke off before it was complete, e.g. because the page load was stopped.
-  // Only while this capture is still the current one: a newer capture is not ended by it.
-  dataFlow.onerror = () => {
-    if (captureSession !== session) return;
-    failDownload(`PDF transfer stopped: ${dataFlow.error}`);
-  };
+function rejectInvalidDoi(doi) {
+  const invalidDoiMessage = `Invalid DOI: "${doi}"`;
+  self.reportStatus(`Could not start job: ${invalidDoiMessage}`, true);
+  return Promise.reject(new Error(invalidDoiMessage));
 }
 
-function isCaptureDownload(item) {
-  return item.mime.includes("application/pdf") || item.filename.endsWith(".pdf")
-    || item.url === captureSession.lastMainUrl;
+// a DOI page that fails to load runs no content script, so only this timeout can report it
+function startPageLoadWatch(doi, doiUrl) {
+  clearTimeout(pageLoadTimeoutId);
+  recordProgressStage(doi, FIRST_PAGE_NUMBER, self.STAGE_PUBLISHER_PAGE, `${self.STATUS_PENDING}: ${PAGE_LOAD_PENDING_REASON}`, doiUrl);
+  pageLoadTimeoutId = setTimeout(() => markPageLoadFailed(doi, doiUrl), PAGE_LOAD_TIMEOUT_MS);
 }
 
-// Record the outcome of a browser download of the captured PDF: saved, or interrupted
-// (cancelled by the user, or a network or disk error). Either way the capture ends.
-function processDownloadChange(delta) {
-  const state = delta.state?.current;
-  if (state !== "complete" && state !== "interrupted") return Promise.resolve();
+function markPageLoadFailed(doi, doiUrl) {
+  pageLoadTimeoutId = null;
+  recordProgressStage(doi, FIRST_PAGE_NUMBER, self.STAGE_PUBLISHER_PAGE, `${self.STATUS_ACCESS_ERROR}: page did not load`, doiUrl);
+  self.reportStatus(`❌ DOI page did not load: ${doiUrl}`, true);
+}
 
-  return browser.downloads.search({ id: delta.id }).then(([item]) => {
-    if (!item || captureSession === null || !isCaptureDownload(item)) return;
-    const basename = item.filename.split(/[\\/]/).pop();
-    if (state === "complete") {
-      self.reportStatus(`✅ Saved PDF to ${item.filename}`);
-      self.recordDownload(self.STATUS_SUCCESS, basename);
-      downloadLog = downloadLog.concat(captureSession.doi, ",", item.filename, "\n");
-    } else {
-      // Firefox sends the reason with the change; the download item may not have it.
-      const reason = `Download interrupted (${delta.error?.current || item.error || "unknown reason"})`;
-      self.recordDownload(`${self.STATUS_ACCESS_ERROR}: ${reason}`, basename);
-      self.failCapture(reason);
-    }
-    captureSession = null;
+function showStatusTable() {
+  self.openOrFocusStatusTab().catch((error) => {
+    self.reportStatus(`Could not open status table: ${readErrorMessage(error)}`, true);
   });
 }
 
+function openDoiPageInBackgroundTab(normalizedDoi, doiUrl) {
+  return browser.tabs.create({ url: doiUrl, active: false })
+    .then((createdTab) => storeJobForTab(normalizedDoi, doiUrl, createdTab))
+    .catch((error) => {
+      self.reportStatus(`Could not start job: ${readErrorMessage(error)}`, true);
+    });
+}
 
-function armCaptureBase(doi, tabId, expectedUrl) {
-  if (captureSession) {
-    // The previous capture led to an HTML page instead of a PDF, and a link on that
-    // page is being followed now: that page is the next page of the job.
-    clearTimeout(captureSession.timeoutId);
-    if (! captureSession.sawPdf) {
-      self.recordCapture(`${self.STATUS_SKIPPED}: HTML page, searched as page ${jobPageCounter + 1}`,
-                         captureSession.lastMainUrl || captureSession.expectedUrl, captureSession);
-    }
+function storeJobForTab(normalizedDoi, doiUrl, createdTab) {
+  self.reportStatus(`Opened DOI page in tab ${createdTab.id}. Looking for "${SEARCH_PHRASES}" link…`);
+  return browser.storage.local.set({ job: createJob(normalizedDoi, doiUrl, createdTab.id) });
+}
+
+function createJob(normalizedDoi, doiUrl, tabId) {
+  return { url: doiUrl, phrase: SEARCH_PHRASES, doi: normalizedDoi, usedUrls: [], tabId };
+}
+
+function readErrorMessage(error) {
+  return error?.message || error;
+}
+
+// recordContentProgress is an entry point function
+function recordContentProgress(progressMessage) {
+  const contentPageNumber = jobPageCounter + 1;
+  if (progressMessage.stage === PROGRESS_STAGE_PAGE) {
+    cancelPageLoadTimeout();
+    recordProgressStage(progressMessage.doi, contentPageNumber, self.STAGE_PUBLISHER_PAGE, self.STATUS_SUCCESS, progressMessage.url);
+  } else if (progressMessage.stage === PROGRESS_STAGE_PDF_LINK) {
+    recordProgressStage(progressMessage.doi, contentPageNumber, self.STAGE_PDF_LINK, readLinkStatus(progressMessage), progressMessage.url);
   }
-  // The k-th capture of a job always follows a link found on page k (page 1 being the
-  // page startJob opened), so counting captures counts pages.
+}
+
+function cancelPageLoadTimeout() {
+  clearTimeout(pageLoadTimeoutId);
+  pageLoadTimeoutId = null;
+}
+
+function readLinkStatus(progressMessage) {
+  if (progressMessage.found) {
+    return self.STATUS_SUCCESS;
+  } else {
+    return self.STATUS_NOT_FOUND;
+  }
+}
+
+// armCaptureAndNavigate is an entry point function
+function armCaptureAndNavigate(doi, tabId, expectedUrl) {
+  self.reportStatus(`Entering armCaptureAndNavigate for ${expectedUrl}`);
+  armCapture(doi, tabId, expectedUrl);
+  return browser.tabs.update(tabId, { url: expectedUrl });
+}
+
+// armCaptureOnly is an entry point function
+function armCaptureOnly(doi, tabId) {
+  self.reportStatus("Entering armCaptureOnly");
+  armCapture(doi, tabId, null);
+  return Promise.resolve(true);
+}
+
+// arming capture only involves fetching PDF files, not HTML files
+function armCapture(doi, tabId, expectedUrl) {
+  closePreviousCapture(captureSession);
   jobPageCounter++;
-  captureSession = {
+  captureSession = createCaptureSession(doi, tabId, expectedUrl, jobPageCounter);
+  captureSession.timeoutId = startCaptureTimeout(captureSession);
+  const targetType = guessTargetType(expectedUrl, captureSession.pageCounter);
+  self.reportStatus(`Armed capture; navigating to ${targetType}… (${captureSession.pageCounter})`);
+  return targetType;
+}
+
+function closePreviousCapture(previousSession) {
+  if (previousSession) {
+    clearTimeout(previousSession.timeoutId);
+    recordStoppedCapture(previousSession);
+  }
+}
+
+function recordStoppedCapture(previousSession) {
+  if (!previousSession.sawPdf) {
+    recordCapture(`${self.STATUS_SKIPPED}: capture stopped by new capture on page ${jobPageCounter + 1}`,
+                       readSessionUrl(previousSession), previousSession);
+  }
+}
+
+function createCaptureSession(doi, tabId, expectedUrl, pageCounter) {
+  return {
     tabId,
     doi,
     expectedUrl,
     sawPdf: false,
     timeoutId: null,
-    pageCounter: jobPageCounter,
+    pageCounter,
     lastMainUrl: null,
     lastMainStatus: null,
     lastMainContentType: null,
   };
-  captureSession.timeoutId = setTimeout(() => {
-    if (! captureSession) return "cannot happen";
+}
 
-    const sc = captureSession.lastMainStatus || "";
-    const ct = captureSession.lastMainContentType || "";
-    const url = captureSession.lastMainUrl || captureSession.expectedUrl || "";
+function endCaptureSession() {
+  captureSession = null;
+}
 
-    if (sc === 401 || sc === 403) {
-      recordCaptureFailure(self.STATUS_ACCESS_ERROR, `Access denied (${sc}) — likely paywall/login required.`, url);
-      captureSession = null;
-    } else if (ct.includes("text/html") && self.looksPaywalledUrl(url)) {
-      recordCaptureFailure(self.STATUS_ACCESS_ERROR, "Redirected to a paywall/purchase/login page (no PDF served).", url);
-      captureSession = null;
-    } else if (ct.includes("text/html")) {
-      recordCaptureFailure(self.STATUS_ACCESS_ERROR, "Received HTML instead of PDF (likely paywall/login).", url);
-      captureSession = null;
-    } else if (! captureSession.sawPdf) {
-      recordCaptureFailure(self.STATUS_NOT_FOUND, "No PDF response detected (possible paywall/login or blocked access).", url);
-      captureSession = null;
-    }
-  }, CAPTURE_TIMEOUT_MS);
-  if (captureSession.pageCounter > 1 || expectedUrl === null) {
-    targetType = "unknown";
-  } else {
-    if (expectedUrl.toLowerCase().includes("download") || expectedUrl.toLowerCase().includes("pdf")) {
-      targetType = "PDF";
-    } else {
-      targetType = "HTML";
-    }
+function startCaptureTimeout(runningSession) {
+  return setTimeout(() => handleCaptureTimeout(runningSession), CAPTURE_TIMEOUT_MS);
+}
+
+function handleCaptureTimeout(runningSession) {
+  const sessionUrl = readSessionUrl(runningSession) || "";
+  const missingPdfFailure = explainMissingPdf(runningSession, sessionUrl);
+  if (missingPdfFailure) {
+    recordCaptureFailure(missingPdfFailure.failureStatus, missingPdfFailure.failureReason, sessionUrl, runningSession);
+    endCaptureSession();
   }
-  self.reportStatus(`Armed capture; navigating to ${targetType}… (${captureSession.pageCounter})`);
-  return targetType;
 }
 
-function armCaptureAndNavigate(doi, tabId, expectedUrl) {
-  self.reportStatus(`Entering armCaptureAndNavigate for ${expectedUrl}`);
-  self.armCaptureBase(doi, tabId, expectedUrl);
-  return browser.tabs.update(tabId, { url: expectedUrl });
+function explainMissingPdf(runningSession, sessionUrl) {
+  const statusCode = runningSession.lastMainStatus;
+  const contentType = runningSession.lastMainContentType || "";
+  if (ACCESS_DENIED_STATUS_CODES.has(statusCode)) {
+    return { failureStatus: self.STATUS_ACCESS_ERROR, failureReason: `Access denied (${statusCode}) — likely paywall/login required.` };
+  } else if (contentType.includes(HTML_CONTENT_TYPE) && isPaywallUrl(sessionUrl)) {
+    return { failureStatus: self.STATUS_ACCESS_ERROR, failureReason: "Redirected to a paywall/purchase/login page (no PDF served)." };
+  } else if (contentType.includes(HTML_CONTENT_TYPE)) {
+    return { failureStatus: self.STATUS_ACCESS_ERROR, failureReason: "Received HTML instead of PDF (likely paywall/login)." };
+  } else if (!runningSession.sawPdf) {
+    return { failureStatus: self.STATUS_NOT_FOUND, failureReason: "No PDF response detected (possible paywall/login or blocked access)." };
+  } else {
+    return null;
+  }
 }
 
-function armCaptureOnly(doi, tabId, expectedUrl = null) {
-  self.reportStatus(`Entering armCaptureOnly for ${expectedUrl}`);
-  self.armCaptureBase(doi, tabId, expectedUrl);
-  return Promise.resolve(true);
+function readSessionUrl(sessionWithUrls) {
+  return sessionWithUrls.lastMainUrl || sessionWithUrls.expectedUrl;
 }
 
-function sanitizeDOI(doi) {
+function guessTargetType(expectedUrl, pageCounter) {
+  if (pageCounter === 1 && expectedUrl !== null) {
+    return guessTargetTypeFromUrl(expectedUrl);
+  } else {
+    return "unknown";
+  }
+}
+
+function guessTargetTypeFromUrl(expectedUrl) {
+  const lowerCaseUrl = expectedUrl.toLowerCase();
+  if (lowerCaseUrl.includes("download") || lowerCaseUrl.includes("pdf")) {
+    return "PDF";
+  } else {
+    return "HTML";
+  }
+}
+
+// isCapturingPdfInTab is an entry point function
+function isCapturingPdfInTab(captureSession, tabId) {
+  return Boolean(captureSession && tabId === captureSession.tabId);
+}
+
+// storeDetailsInSessionData is an entry point function
+function storeDetailsInSessionData(captureSession, responseDetails) {
+  if (responseDetails.type === MAIN_FRAME_REQUEST_TYPE) {
+    captureSession.lastMainUrl = responseDetails.url;
+    captureSession.lastMainStatus = responseDetails.statusCode;
+    captureSession.lastMainContentType = readHeaderValue(responseDetails, "content-type");
+  }
+}
+
+// isPdfResponse is an entry point function
+function isPdfResponse(responseDetails) {
+  return readHeaderValue(responseDetails, "content-type").includes(PDF_CONTENT_TYPE);
+}
+
+// isAttachmentResponse is an entry point function
+function isAttachmentResponse(responseDetails) {
+  return readHeaderValue(responseDetails, "content-disposition").includes("attachment");
+}
+
+function readHeaderValue(responseDetails, headerName) {
+  const responseHeaders = responseDetails.responseHeaders || [];
+  const matchingHeader = responseHeaders.find((responseHeader) => responseHeader.name.toLowerCase() === headerName);
+  return (matchingHeader?.value || "").toLowerCase();
+}
+
+// processIncomingPdfData is an entry point function
+function processIncomingPdfData(pdfCaptureSession, responseDetails) {
+  const pdfFilename = makePdfFilename(pdfCaptureSession.doi);
+  const responseFilter = browser.webRequest.filterResponseData(responseDetails.requestId);
+  const pdfChunks = [];
+  responseFilter.ondata = (dataEvent) => {
+    responseFilter.write(dataEvent.data);
+    pdfChunks.push(dataEvent.data);
+  };
+  responseFilter.onstop = () => savePdfChunks(responseFilter, pdfChunks, pdfFilename, pdfCaptureSession);
+  responseFilter.onerror = () => failBrokenTransfer(responseFilter, pdfFilename, pdfCaptureSession);
+}
+
+async function savePdfChunks(responseFilter, pdfChunks, pdfFilename, pdfCaptureSession) {
+  try {
+    responseFilter.disconnect();
+    await downloadAsFile(new Blob(pdfChunks, { type: PDF_CONTENT_TYPE }), { filename: pdfFilename, saveAs: false });
+  } catch (error) {
+    failPdfDownload(pdfCaptureSession, pdfFilename, `Saving PDF failed: ${error.message}`);
+  }
+}
+
+function failBrokenTransfer(responseFilter, pdfFilename, pdfCaptureSession) {
+  if (isCurrentCaptureSession(pdfCaptureSession)) {
+    failPdfDownload(pdfCaptureSession, pdfFilename, `PDF transfer stopped: ${responseFilter.error}`);
+  }
+}
+
+function failPdfDownload(pdfCaptureSession, pdfFilename, failureReason) {
+  recordDownload(`${self.STATUS_ACCESS_ERROR}: ${failureReason}`, pdfFilename, pdfCaptureSession);
+  failCapture(failureReason);
+  if (isCurrentCaptureSession(pdfCaptureSession)) {
+    endCaptureSession();
+  }
+}
+
+// processDownloadChange is an entry point function
+function processDownloadChange(downloadDelta) {
+  if (isFinishedDownload(downloadDelta)) {
+    return browser.downloads.search({ id: downloadDelta.id })
+      .then(([downloadItem]) => recordFinishedDownload(downloadDelta, downloadItem));
+  } else {
+    return Promise.resolve();
+  }
+}
+
+function isFinishedDownload(downloadDelta) {
+  return FINISHED_DOWNLOAD_STATES.has(downloadDelta.state?.current);
+}
+
+function recordFinishedDownload(downloadDelta, downloadItem) {
+  if (downloadItem && captureSession !== null && isCaptureDownload(captureSession, downloadItem)) {
+    recordDownloadOutcome(captureSession, downloadDelta, downloadItem);
+    endCaptureSession();
+  }
+}
+
+function isCaptureDownload(captureSession, downloadItem) {
+  return downloadItem.mime.includes(PDF_CONTENT_TYPE) || downloadItem.filename.endsWith(".pdf")
+    || downloadItem.url === captureSession.lastMainUrl;
+}
+
+function recordDownloadOutcome(finishedSession, downloadDelta, downloadItem) {
+  if (downloadDelta.state.current === COMPLETE_DOWNLOAD_STATE) {
+    recordCompletedDownload(finishedSession, downloadItem);
+  } else {
+    recordInterruptedDownload(finishedSession, downloadDelta, downloadItem);
+  }
+}
+
+function recordCompletedDownload(finishedSession, downloadItem) {
+  self.reportStatus(`✅ Saved PDF to ${downloadItem.filename}`);
+  recordDownload(self.STATUS_SUCCESS, readFileBasename(downloadItem.filename), finishedSession);
+  downloadLog = downloadLog.concat(finishedSession.doi, ",", downloadItem.filename, "\n");
+}
+
+function recordInterruptedDownload(finishedSession, downloadDelta, downloadItem) {
+  const interruptReason = `Download interrupted (${readInterruptReason(downloadDelta, downloadItem)})`;
+  recordDownload(`${self.STATUS_ACCESS_ERROR}: ${interruptReason}`, readFileBasename(downloadItem.filename), finishedSession);
+  failCapture(interruptReason);
+}
+
+function readInterruptReason(downloadDelta, downloadItem) {
+  return downloadDelta.error?.current || downloadItem.error || "unknown reason";
+}
+
+function readFileBasename(filePath) {
+  return filePath.split(/[\\/]/).pop();
+}
+
+function isCurrentCaptureSession(candidateSession) {
+  return captureSession === candidateSession;
+}
+
+function recordCaptureFailure(failureStatus, failureReason, targetUrl, recordedSession) {
+  recordCapture(`${failureStatus}: ${failureReason}`, targetUrl, recordedSession);
+  failCapture(failureReason);
+}
+
+function failCapture(failureReason) {
+  self.reportStatus(`❌ PDF download failed: ${failureReason}`, true);
+}
+
+// recordCapture is an entry point function
+function recordCapture(stageStatus, targetUrl, recordedSession) {
+  recordProgressStage(recordedSession.doi, recordedSession.pageCounter, self.STAGE_PDF_CAPTURE, stageStatus, targetUrl);
+}
+
+function recordDownload(stageStatus, pdfFilename, recordedSession) {
+  recordProgressStage(recordedSession.doi, recordedSession.pageCounter, self.STAGE_PDF_DOWNLOAD, stageStatus, pdfFilename);
+}
+
+function recordProgressStage(doi, pageNumber, stageName, stageStatus, stageResult) {
+  self.recordStage(doi, pageNumber, stageName, stageStatus, stageResult);
+  sendProgressUpdate();
+}
+
+// the status tab may be closed, so a missing receiver is ignored
+function sendProgressUpdate() {
+  browser.runtime.sendMessage({ type: PROGRESS_UPDATE_MESSAGE_TYPE, html: self.renderProgressTableHtml() }).catch(() => {});
+}
+
+// saveLog is an entry point function
+async function saveLog(downloadLogCsv) {
+  await downloadAsFile(new Blob([downloadLogCsv], { type: CSV_CONTENT_TYPE }), { filename: LOG_FILENAME, conflictAction: "uniquify" });
+  self.reportStatus("Saved logfile to Downloads directory");
+}
+
+async function downloadAsFile(fileBlob, downloadOptions) {
+  const fileObjectUrl = URL.createObjectURL(fileBlob);
+  await browser.downloads.download({ url: fileObjectUrl, ...downloadOptions });
+  setTimeout(() => URL.revokeObjectURL(fileObjectUrl), OBJECT_URL_LIFETIME_MS);
+}
+
+function makePdfFilename(doi) {
+  return `${replaceSlashes(sanitizeDoi(doi))}.pdf`;
+}
+
+function sanitizeDoi(doi) {
   return doi
     .trim()
     .replace(/^doi:\s*/i, "")
@@ -176,144 +395,32 @@ function sanitizeDOI(doi) {
     .replace(/[^a-z0-9._/-]+/gi, "_")
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "")
-    .slice(0, 100);
+    .slice(0, MAX_DOI_LENGTH);
 }
 
-function removeSlashes(doi) {
+function replaceSlashes(doi) {
   return doi.replace(/\/+/g, "_");
 }
 
-function startJob(doi) {
-  self.reportStatus("Entering startJob");
-  const normalizedDoi = sanitizeDOI(doi) || null;
-  const url = "https://doi.org/" + normalizedDoi;
-
-  jobPageCounter = 0;
-  self.seedPageLoadRow(normalizedDoi, url);
-  // Keep the status tab in view: open the DOI page in a background tab, where it
-  // loads and runs the content script as usual.
-  self.openOrFocusStatusTab().catch(err => {
-    self.reportStatus(`Could not open status table: ${err && err.message ? err.message : err}`, isError = true);
-  });
-  return browser.tabs.create({ url, active: false }).then(tab => {
-    const job = {
-      url,
-      phrase,
-      doi: normalizedDoi,
-      usedUrls: [],
-      tabId: tab.id
-    };
-
-    self.reportStatus(`Opened DOI page in tab ${tab.id}. Looking for "${phrase}" link…`);
-    return browser.storage.local.set({ job });
-  }).catch(err => {
-    self.reportStatus(`Could not start job: ${err && err.message ? err.message : err}`, isError = true);
-  });
+function isPaywallUrl(url) {
+  return PAYWALL_URL_WORDS.some((paywallWord) => url.includes(paywallWord));
 }
 
-function looksPaywalledUrl(u) {
-  return ["paywall","subscribe","purchase","checkout","cart","basket","login","signin","account"]
-    .some(k => u.includes(k));
-}
+const exportedBackgroundFunctions = {
+  armCapture, armCaptureAndNavigate, armCaptureOnly, failCapture, isAttachmentResponse, isCapturingPdfInTab,
+  isPaywallUrl, isPdfResponse, makePdfFilename, processDownloadChange, processIncomingPdfData, recordCapture,
+  recordCaptureFailure, recordContentProgress, recordDownload, replaceSlashes, sanitizeDoi, saveLog,
+  sendProgressUpdate, startJob, startPageLoadWatch, storeDetailsInSessionData,
+};
 
-function failCapture(reason) {
-  self.reportStatus(`❌ PDF download failed: ${reason}`, isError = true);
-  return
-}
-
-// Push the current progress table to the status tab, if it is open.
-function sendProgressUpdate() {
-  browser.runtime.sendMessage({ type: "progress-update", html: self.renderProgressTableHtml() }).catch(() => {});
-}
-
-function recordCapture(status, targetUrl, session = captureSession) {
-  self.recordStage(session.doi, session.pageCounter, self.STAGE_PDF_CAPTURE, status, targetUrl);
-  self.sendProgressUpdate();
-}
-
-function recordDownload(status, filename, session = captureSession) {
-  self.recordStage(session.doi, session.pageCounter, self.STAGE_PDF_DOWNLOAD, status, filename);
-  self.sendProgressUpdate();
-}
-
-function recordCaptureFailure(status, reason, targetUrl) {
-  self.recordCapture(`${status}: ${reason}`, targetUrl);
-  self.failCapture(reason);
-}
-
-// A first page that fails to load (bad DOI, 404, network error) shows a browser error
-// page where no content script runs, so its failure would never be reported. Show a
-// pending placeholder row right away, and mark it failed unless the content script
-// confirms the page in time (see recordContentProgress).
-function seedPageLoadRow(doi, doiUrl) {
-  clearTimeout(pageLoadTimeoutId);
-  self.recordStage(doi, 1, self.STAGE_PUBLISHER_PAGE, `${self.STATUS_PENDING}: ${PAGE_LOAD_PENDING_REASON}`, doiUrl);
-  self.sendProgressUpdate();
-  pageLoadTimeoutId = setTimeout(() => {
-    pageLoadTimeoutId = null;
-    self.recordStage(doi, 1, self.STAGE_PUBLISHER_PAGE, `${self.STATUS_ACCESS_ERROR}: page did not load`, doiUrl);
-    self.sendProgressUpdate();
-    self.reportStatus(`❌ DOI page did not load: ${doiUrl}`, isError = true);
-  }, PAGE_LOAD_TIMEOUT_MS);
-}
-
-// Record a page load or link search reported by the content script. It belongs to the
-// page after the ones already captured (see armCaptureBase).
-function recordContentProgress(msg) {
-  const pageCounter = jobPageCounter + 1;
-  if (msg.stage === "page") {
-    clearTimeout(pageLoadTimeoutId);
-    pageLoadTimeoutId = null;
-    self.recordStage(msg.doi, pageCounter, self.STAGE_PUBLISHER_PAGE, self.STATUS_SUCCESS, msg.url);
-  } else if (msg.stage === "link") {
-    const status = msg.found ? self.STATUS_SUCCESS : self.STATUS_NOT_FOUND;
-    self.recordStage(msg.doi, pageCounter, self.STAGE_PDF_LINK, status, msg.url);
-  } else {
-    return;
-  }
-  self.sendProgressUpdate();
-}
-
-function saveLog(downloadLogCsv) {
-  const blob = new Blob([downloadLogCsv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-
-  browser.downloads.download({
-    url,
-    filename: "my_table.csv",
-    conflictAction: "uniquify"
-  });
-  self.reportStatus("Saved logfile to Downloads directory");
-}
-
+/* istanbul ignore next */
 if (typeof module !== "undefined") {
-  module.exports = { CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, armCaptureAndNavigate, armCaptureBase, armCaptureOnly,
-                     failCapture, isCapturingPdfInTab, isPdfResponse, looksPaywalledUrl, processDownloadChange,
-                     processIncomingPdfData, recordCapture,
-                     recordCaptureFailure, recordContentProgress, recordDownload, removeSlashes, retrievingAttachment,
-                     sanitizeDOI, saveLog, seedPageLoadRow, sendProgressUpdate, startJob,
-                     storeDetailsInSessionData };
+  module.exports = {
+    CAPTURE_TIMEOUT_MS, PAGE_LOAD_TIMEOUT_MS, PAGE_LOAD_PENDING_REASON, PROGRESS_UPDATE_MESSAGE_TYPE,
+    ...exportedBackgroundFunctions,
+  };
 }
+/* istanbul ignore next */
 if (typeof self !== "undefined") {
-  self.armCaptureAndNavigate = armCaptureAndNavigate;
-  self.armCaptureBase = armCaptureBase;
-  self.armCaptureOnly = armCaptureOnly;
-  self.failCapture = failCapture;
-  self.isCapturingPdfInTab = isCapturingPdfInTab;
-  self.isPdfResponse = isPdfResponse;
-  self.looksPaywalledUrl = looksPaywalledUrl;
-  self.processDownloadChange = processDownloadChange;
-  self.processIncomingPdfData = processIncomingPdfData;
-  self.recordCapture = recordCapture;
-  self.recordCaptureFailure = recordCaptureFailure;
-  self.recordContentProgress = recordContentProgress;
-  self.recordDownload = recordDownload;
-  self.removeSlashes = removeSlashes;
-  self.retrievingAttachment = retrievingAttachment;
-  self.sanitizeDOI = sanitizeDOI;
-  self.saveLog = saveLog;
-  self.seedPageLoadRow = seedPageLoadRow;
-  self.sendProgressUpdate = sendProgressUpdate;
-  self.startJob = startJob;
-  self.storeDetailsInSessionData = storeDetailsInSessionData;
+  Object.assign(self, exportedBackgroundFunctions);
 }

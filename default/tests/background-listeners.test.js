@@ -27,6 +27,7 @@ function mockBackgroundEnvironment() {
     STATUS_SUCCESS: "success",
     armCaptureAndNavigate: jest.fn().mockResolvedValue(undefined),
     armCaptureOnly: jest.fn().mockResolvedValue(true),
+    isAttachmentResponse: jest.fn().mockReturnValue(false),
     isCapturingPdfInTab: jest.fn().mockReturnValue(true),
     isPdfResponse: jest.fn().mockReturnValue(true),
     processDownloadChange: jest.fn().mockResolvedValue(undefined),
@@ -35,7 +36,6 @@ function mockBackgroundEnvironment() {
     recordContentProgress: jest.fn(),
     renderProgressTableHtml: jest.fn().mockReturnValue("<table></table>"),
     reportStatus: jest.fn(),
-    retrievingAttachment: jest.fn().mockReturnValue(false),
     saveLog: jest.fn(),
     startJob: jest.fn().mockResolvedValue(undefined),
     storeDetailsInSessionData: jest.fn(),
@@ -78,7 +78,7 @@ describe("handleResponseHeaders", () => {
   test("stores the details of a response that is not a pdf", () => {
     self.isPdfResponse.mockReturnValue(false);
     handleResponseHeaders(RESPONSE_DETAILS);
-    expect(self.storeDetailsInSessionData).toHaveBeenCalledWith(RESPONSE_DETAILS);
+    expect(self.storeDetailsInSessionData).toHaveBeenCalledWith(background.captureSession, RESPONSE_DETAILS);
     expect(background.captureSession.sawPdf).toBe(false);
     expect(self.processIncomingPdfData).not.toHaveBeenCalled();
   });
@@ -88,14 +88,14 @@ describe("handleResponseHeaders", () => {
     expect(background.captureSession.sawPdf).toBe(true);
     expect(clearTimeout).toHaveBeenCalledWith(TIMEOUT_ID);
     expect(self.reportStatus).toHaveBeenCalledWith("PDF response detected; capturing…");
-    expect(self.recordCapture).toHaveBeenCalledWith(self.STATUS_SUCCESS, PDF_URL);
-    expect(self.processIncomingPdfData).toHaveBeenCalledWith(RESPONSE_DETAILS);
+    expect(self.recordCapture).toHaveBeenCalledWith(self.STATUS_SUCCESS, PDF_URL, background.captureSession);
+    expect(self.processIncomingPdfData).toHaveBeenCalledWith(background.captureSession, RESPONSE_DETAILS);
   });
 
   test("leaves a pdf attachment to the browser download", () => {
-    self.retrievingAttachment.mockReturnValue(true);
+    self.isAttachmentResponse.mockReturnValue(true);
     handleResponseHeaders(RESPONSE_DETAILS);
-    expect(self.recordCapture).toHaveBeenCalledWith(self.STATUS_SUCCESS, PDF_URL);
+    expect(self.recordCapture).toHaveBeenCalledWith(self.STATUS_SUCCESS, PDF_URL, background.captureSession);
     expect(self.reportStatus).toHaveBeenCalledWith(expect.stringContaining(`(${PAGE_COUNTER})`));
     expect(self.processIncomingPdfData).not.toHaveBeenCalled();
   });
